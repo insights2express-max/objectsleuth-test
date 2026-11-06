@@ -57,6 +57,7 @@ html, body {
   background: var(--panel);
 }
 .brand span { color: var(--gold); }
+.brand .ver { margin-left: 6px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--gold); color: var(--gold); font-size: 12px; font-weight: 700; letter-spacing: 0.03em; vertical-align: middle; }
 
 .seg, #zoombar {
   display: flex;

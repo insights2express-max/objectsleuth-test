@@ -14,7 +14,10 @@ import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
 import { installGradedShadows } from './scene/softshadows.js';
 import { Targets, LEVELS } from './game/targets.js';
 
-const BUILD = 'Draft 1 · M1.7 Target Objects v2 (b)';
+// VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
+// with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
+const APP_VERSION = 'v11';
+const BUILD = 'Draft 1 · M1.7';
 const $ = (id) => document.getElementById(id);
 
 // ---------- renderer & scene ----------
@@ -116,8 +119,17 @@ presetButtons.forEach((b) => b.addEventListener('click', () => choosePreset(b.da
 // ---------- STYLE SAMPLER buttons ----------
 const styleSel = $('style'), miniBtn = $('mini');
 Object.entries(STYLES).filter(([, s]) => !s.parked).forEach(([key, s]) => styleSel.add(new Option(s.label, key)));
+// Shadows are measured from the FRONT (lit) faces of solid objects. Measuring from back faces (the
+// three.js default) let light creep a few millimetres past every joint – the thin glowing lines
+// where the hearth meets the floor and the pillars meet the hearth (OS-12 follow-up).
+function frontFaceShadows() {
+  scene.traverse((o) => {
+    if (o.isMesh && o.material && o.material.side === THREE.FrontSide && !o.material.transparent) o.material.shadowSide = THREE.FrontSide;
+  });
+}
 function chooseStyle(name) {
   sampler.set(name);
+  frontFaceShadows();
   styleSel.value = sampler.name;
   try { localStorage.setItem('objectsleuth.style', sampler.name); } catch (e) { /* ignore */ }
 }
@@ -184,7 +196,8 @@ const zoomLabel = $('zoom-label');
 controls.onChange = (c) => { zoomLabel.textContent = '×' + c.zoom.toFixed(1); };
 controls.apply();
 
-$('build').textContent = BUILD;
+$('build').textContent = APP_VERSION + ' · ' + BUILD;
+$('ver').textContent = APP_VERSION;
 
 // Test shortcuts in the address, e.g.  ?light=night&zoom=8&focus=0,0.4,-2.6
 const params = new URLSearchParams(window.location.search);
