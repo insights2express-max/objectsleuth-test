@@ -60,17 +60,39 @@ const GRADED = `
 // (exact Three.js r186 text, with its tab indents)
 const POINT_OLD = '\t\t\tvec3 bd3D = normalize( lightToPosition );\n\t\t\tfloat depth = textureCube( shadowMap, bd3D ).r;\n'
   + '\t\t\t#ifdef USE_REVERSED_DEPTH_BUFFER\n\t\t\t\tdepth = 1.0 - depth;\n\t\t\t#endif\n\t\t\tshadow = step( dp, depth );';
+// Point lights (fire, bounce). radius < 1 → GRADED: radius = the light's size in metres; the shadow
+// is crisp where the caster touches and softer the farther it falls (OS-10: 1.3). radius ≥ 1 → plain blur.
 const POINT_NEW = `			vec3 bd3D = normalize( lightToPosition );
 			vec3 tg = normalize( cross( bd3D, abs( bd3D.y ) > 0.9 ? vec3( 1.0, 0.0, 0.0 ) : vec3( 0.0, 1.0, 0.0 ) ) );
 			vec3 bt = cross( bd3D, tg );
-			float ts = max( shadowRadius, 1.0 ) * 2.0 / shadowMapSize.x;
 			float phi = osIGN( gl_FragCoord.xy ) * PI2;
-			shadow = 0.0;
-			for ( int i = 0; i < 8; i ++ ) {
-				vec2 v = osVogel( i, 8, phi ) * ts;
-				shadow += step( dp, textureCube( shadowMap, bd3D + tg * v.x + bt * v.y ).r );
-			}
-			shadow /= 8.0;`;
+			if ( shadowRadius < 1.0 ) {
+				float sr = 0.08, sum = 0.0, n = 0.0;
+				for ( int i = 0; i < 10; i ++ ) {
+					vec2 v = osVogel( i, 10, phi ) * sr;
+					float d = textureCube( shadowMap, bd3D + tg * v.x + bt * v.y ).r;
+					if ( d < dp ) { sum += shadowCameraNear * shadowCameraFar / ( shadowCameraFar - d * ( shadowCameraFar - shadowCameraNear ) ); n += 1.0; }
+				}
+				shadow = 1.0;
+				if ( n > 0.0 ) {
+					float zB = sum / n;
+					float pen = clamp( shadowRadius * ( viewSpaceZ - zB ) / ( zB * viewSpaceZ ), 0.003, sr );
+					float lit = 0.0;
+					for ( int i = 0; i < 12; i ++ ) {
+						vec2 v = osVogel( i, 12, phi + 1.7 ) * pen;
+						lit += step( dp, textureCube( shadowMap, bd3D + tg * v.x + bt * v.y ).r );
+					}
+					shadow = lit / 12.0;
+				}
+			} else {
+				float ts = shadowRadius * 2.0 / shadowMapSize.x;
+				shadow = 0.0;
+				for ( int i = 0; i < 8; i ++ ) {
+					vec2 v = osVogel( i, 8, phi ) * ts;
+					shadow += step( dp, textureCube( shadowMap, bd3D + tg * v.x + bt * v.y ).r );
+				}
+				shadow /= 8.0;
+			}`;
 
 // Patches Three.js's shadow code once, before anything is drawn. Returns true if it worked.
 export function installGradedShadows() {

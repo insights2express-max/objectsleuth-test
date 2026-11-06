@@ -200,3 +200,5 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
   .brand { display: none; }
   #topbar { justify-content: center; }
 }
+#findbar select { font: inherit; font-size: 14px; min-height: 40px; padding: 0 8px; border-radius: 10px; border: 0; background: rgba(255,255,255,0.12); color: inherit; }
+#findbar select option { color: #1b1f2a; }

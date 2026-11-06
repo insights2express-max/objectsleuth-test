@@ -1,6 +1,6 @@
 // ObjectSleuth service worker: stores every app file on the device so the game runs 100% offline.
 // IMPORTANT: change VERSION whenever any app file changes. That makes devices download the new files.
-const VERSION = 'draft1-m1.6-001';
+const VERSION = 'draft1-m1.7-001';
 const CACHE = 'objectsleuth-' + VERSION;
 
 const FILES = [
@@ -19,6 +19,7 @@ const FILES = [
   './js/scene/sun.js',
   './js/scene/softshadows.js',
   './js/game/targets.js',
+  './js/game/objects.js',
   './vendor/three/three.module.js',
   './vendor/three/three.core.js',
   './vendor/three/addons/geometries/RoundedBoxGeometry.js',

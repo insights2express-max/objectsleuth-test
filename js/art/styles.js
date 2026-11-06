@@ -303,7 +303,7 @@ function makeMaterial(orig, style) {
 function makeBase(orig, style) {
   const color = tint(orig.color, style);
   const base = {
-    color, map: orig.map, side: orig.side,
+    color, map: orig.map, side: orig.side, bumpMap: orig.bumpMap, bumpScale: orig.bumpScale, // (rug relief)
     emissive: orig.emissive, emissiveIntensity: orig.emissiveIntensity,
   };
   let m;

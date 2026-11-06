@@ -22,7 +22,7 @@ const BOOK_COLORS = [0x7a2e2e, 0x2e4a7a, 0x2f6b4a, 0x8a6a2a, 0x5a3a6b, 0x3a3a3a,
 export function buildStudy() {
   const r = rng(20261105); // fixed seed: the room looks the same every time
   const root = new THREE.Group();
-  const fx = { lamps: [], bulbMats: [], shadeMats: [], flames: [], windowMats: [], openings: [], fireLight: null,
+  const fx = { lamps: [], bulbMats: [], shadeMats: [], flames: [], windowMats: [], openings: [], fireLight: null, paintings: [], sockets: [],
     room: new THREE.Box3(new THREE.Vector3(-4.0, 0, -3.0), new THREE.Vector3(4.0, 3.2, 3.0)) };
   const books = [];
 
@@ -34,7 +34,7 @@ export function buildStudy() {
   const clock = buildClock();
   clock.group.position.set(-3.62, 0, -2.78);
   root.add(clock.group);
-  root.add(buildRug());
+  root.add(buildRug(fx, r));
   root.add(group([buildDesk(r, fx, books)], 1.5, 0, 0.0));
   root.add(group([buildDeskChair()], 1.5, 0, 0.85, Math.PI));
   root.add(group([buildArmchair()], -3.45, 0, 0.8, Math.PI / 2));
@@ -44,7 +44,7 @@ export function buildStudy() {
   globe.group.position.set(3.45, 0, -1.7);
   root.add(globe.group);
   root.add(group([buildPlant(r)], 3.4, 0, 2.4));
-  root.add(group([buildChest()], -1.3, 0, 2.3, 0.12));
+  root.add(group([buildChest(fx)], -1.3, 0, 2.3, 0.12));
   root.add(group([buildFireTools()], 1.3, 0, -2.4));
   root.add(group([buildLogBasket()], -1.3, 0, -2.35, 0.2));
   bookStack(r, books, 2.75, 0, 1.45, 5);
@@ -194,7 +194,9 @@ function buildWalls(fx) {
 
   // small framed picture on the left wall
   g.add(box(0.05, 0.66, 0.86, C.brass, -3.955, 1.4, -1.6));
-  const pic = mesh(new THREE.PlaneGeometry(0.74, 0.54), mat(0xffffff, { map: stillLifeTexture(), rough: 0.9 }), false);
+  const still = painting(600, 438, drawStillLife, [[0.05, 0.95, 0.76, 0.97]]); // [x0, x1, y0, y1]: where a TO may be painted (the table)
+  const pic = mesh(new THREE.PlaneGeometry(0.74, 0.54), new THREE.MeshStandardMaterial({ map: still.tex, roughness: 0.9 }), false);
+  fx.paintings.push({ ...still, mesh: pic, wM: 0.74, hM: 0.54 });
   pic.rotation.y = Math.PI / 2;
   pic.position.set(-3.924, 1.73, -1.6);
   g.add(pic);
@@ -248,6 +250,12 @@ function buildFireplace(r, fx) {
   fire.position.set(0, 0.55, zf + 0.7);
   g.add(fire);
   fx.fireLight = fire;
+  // warm light bouncing off the firebox back wall (used with fire shadows; see lighting.js)
+  const bounce = new THREE.PointLight(0xff9a55, 0, 3.0, 2);
+  bounce.position.set(0, 0.62, zf + 0.12);
+  bounce.visible = false;
+  g.add(bounce);
+  fx.bounceLight = bounce;
   // mantel ornaments: candlesticks, small clock, vase
   for (const x of [-0.88, 0.88]) {
     g.add(cyl(0.05, 0.06, 0.04, 8, C.brass, x, 1.24, zf + 0.26));
@@ -267,7 +275,9 @@ function buildFireplace(r, fx) {
   g.add(lathe([[0, 0], [0.05, 0], [0.07, 0.05], [0.045, 0.15], [0.03, 0.2], [0.045, 0.24]], C.blueGlaze, -0.42, 1.24, zf + 0.24));
   // painting above the mantel
   g.add(box(1.12, 0.8, 0.05, C.brass, 0, 1.5, zf + 0.275));     // frame clear of the mantel clock (no flicker)
-  const paint = mesh(new THREE.PlaneGeometry(0.98, 0.66), mat(0xffffff, { map: landscapeTexture(), rough: 0.9 }), false);
+  const land = painting(768, 516, drawLandscape, [[0.05, 0.95, 0.74, 0.96]]); // the foreground hills
+  const paint = mesh(new THREE.PlaneGeometry(0.98, 0.66), new THREE.MeshStandardMaterial({ map: land.tex, roughness: 0.9 }), false);
+  fx.paintings.push({ ...land, mesh: paint, wM: 0.98, hM: 0.66 });
   paint.position.set(0, 1.9, zf + 0.306);
   g.add(paint);
   return g;
@@ -410,22 +420,106 @@ function buildClock() {
   return { group: g, pend, minute, hour };
 }
 
-function buildRug() {
-  const tex = canvasTex(512, 400, (c, w, h) => {
-    const rect = (col, m) => { c.fillStyle = col; c.fillRect(m, m, w - 2 * m, h - 2 * m); };
-    rect('#5e1f1f', 0); rect('#d4ad62', 16); rect('#7a2828', 26); rect('#2d3f5f', 50); rect('#8a3030', 62);
-    const diamond = (x, y, rx, ry, col) => {
-      c.fillStyle = col; c.beginPath();
-      c.moveTo(x, y - ry); c.lineTo(x + rx, y); c.lineTo(x, y + ry); c.lineTo(x - rx, y); c.closePath(); c.fill();
+// ---------------------------------------------------------------- the rug (a hand-knotted design)
+// The pattern is designed on a grid of KNOTS (512 × 400, about 7 mm each), like a real rug, then each
+// knot is drawn as a little rounded tuft with its own slight colour variation, and every motif is
+// carved slightly higher than the ground (relief). A Target Object can be knotted into one of the
+// ornament places, in the same yarn colours and relief, so it reads as part of the design (OS-10: 2.3).
+const RUG = { KW: 512, KH: 400, PX: 3, W: 3.6, D: 2.8, X: 1.1, Z: 0.35 };
+const RUG_INK = '#4a1616';
+function rugOrnament(c, type, s) { // centred at 0,0, size s (knots)
+  const h = s / 2;
+  c.beginPath();
+  if (type === 0) { c.moveTo(0, -h); c.lineTo(h, 0); c.lineTo(0, h); c.lineTo(-h, 0); c.closePath(); c.moveTo(0, -h * 0.4); c.lineTo(-h * 0.4, 0); c.lineTo(0, h * 0.4); c.lineTo(h * 0.4, 0); c.closePath(); }
+  else if (type === 1) { const a = h * 0.3; c.moveTo(-a, -h); c.lineTo(a, -h); c.lineTo(a, -a); c.lineTo(h, -a); c.lineTo(h, a); c.lineTo(a, a); c.lineTo(a, h); c.lineTo(-a, h); c.lineTo(-a, a); c.lineTo(-h, a); c.lineTo(-h, -a); c.lineTo(-a, -a); c.closePath(); }
+  else if (type === 2) { c.arc(0, 0, h * 0.42, 0, Math.PI * 2); for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; c.moveTo(Math.cos(a) * h * 0.78 + h * 0.2, Math.sin(a) * h * 0.78); c.arc(Math.cos(a) * h * 0.78, Math.sin(a) * h * 0.78, h * 0.2, 0, Math.PI * 2); } }
+  else if (type === 3) { for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2, r = k % 2 ? h * 0.45 : h; k ? c.lineTo(Math.cos(a) * r, Math.sin(a) * r) : c.moveTo(r, 0); } c.closePath(); }
+  else { c.moveTo(-h, h * 0.15); c.bezierCurveTo(-h, -h, h * 0.2, -h, 0, 0); c.bezierCurveTo(-h * 0.2, h, h, h, h, -h * 0.15); c.lineTo(h * 0.8, -h * 0.15); c.bezierCurveTo(h * 0.8, h * 0.75, -h * 0.05, h * 0.75, 0.15 * h, 0.05 * h); c.bezierCurveTo(h * 0.35, -h * 0.75, -h * 0.8, -h * 0.75, -h * 0.8, h * 0.15); c.closePath(); }
+}
+
+function buildRug(fx, r) {
+  const { KW, KH, PX } = RUG;
+  const design = document.createElement('canvas'); design.width = KW; design.height = KH;
+  const mask = document.createElement('canvas'); mask.width = KW; mask.height = KH;
+  const out = document.createElement('canvas'); out.width = KW * PX; out.height = KH * PX;
+  const bump = document.createElement('canvas'); bump.width = KW * PX; bump.height = KH * PX;
+  // ornament places: a lattice in the field (around the medallion) and a row along the border band
+  const slots = [];
+  const cx = KW / 2, cy = KH / 2;
+  for (let y = 86; y <= KH - 86; y += 38) {
+    for (let x = 86; x <= KW - 86; x += 40) {
+      const ox = (Math.round((y - 86) / 38) % 2) * 20;           // offset rows, like a real lattice
+      const px = x + ox;
+      if (px > KW - 80) continue;
+      if (Math.abs(px - cx) / 140 + Math.abs(y - cy) / 112 < 1) continue; // keep clear of the medallion
+      slots.push({ x: px, y, s: 17, rot: 0, col: Math.round((y - 86) / 38) % 2 ? '#e3cc92' : '#c48a4a', type: Math.floor(r() * 5) });
+    }
+  }
+  for (let x = 60; x <= KW - 60; x += 34) for (const y of [38, KH - 38]) slots.push({ x, y, s: 14, rot: 0, col: '#d4ad62', type: (x / 34) % 2 ? 0 : 2 });
+  for (let y = 72; y <= KH - 72; y += 34) for (const x of [38, KW - 38]) slots.push({ x, y, s: 14, rot: Math.PI / 2, col: '#d4ad62', type: (y / 34) % 2 ? 0 : 2 });
+  const knotNoise = new Float32Array(KW * KH);
+  for (let i = 0; i < knotNoise.length; i++) knotNoise[i] = 0.93 + r() * 0.12;
+
+  // replace: { slot, draw(ctx) } knots a Target Object's outline into that ornament place instead.
+  function render(replace) {
+    if (!replace && !fx.rug?.replaced && fx.rug?.drawn) return;   // already the plain design
+    if (fx.rug) { fx.rug.replaced = !!replace; fx.rug.drawn = true; }
+    const c = design.getContext('2d'), m = mask.getContext('2d');
+    const rect = (col, k) => { c.fillStyle = col; c.fillRect(k, k, KW - 2 * k, KH - 2 * k); };
+    rect('#5e1f1f', 0); rect('#d4ad62', 16); rect('#7a2828', 22); rect('#2d3f5f', 54); rect('#8a3030', 60);
+    m.fillStyle = '#000'; m.fillRect(0, 0, KW, KH);
+    const diamond = (ctx, x, y, rx, ry, col) => {
+      ctx.fillStyle = col; ctx.beginPath();
+      ctx.moveTo(x, y - ry); ctx.lineTo(x + rx, y); ctx.lineTo(x, y + ry); ctx.lineTo(x - rx, y); ctx.closePath(); ctx.fill();
     };
-    diamond(w / 2, h / 2, 120, 95, '#d4ad62'); diamond(w / 2, h / 2, 95, 72, '#2d3f5f'); diamond(w / 2, h / 2, 40, 30, '#d4ad62');
-    for (let x = 100; x < w - 80; x += 52) for (const y of [92, h - 92]) diamond(x, y, 12, 12, '#c48a4a');
-    for (const x of [92, w - 92]) for (let y = 140; y < h - 120; y += 52) diamond(x, y, 12, 12, '#c48a4a');
-  });
+    diamond(c, cx, cy, 120, 95, '#d4ad62'); diamond(c, cx, cy, 108, 85, RUG_INK); diamond(c, cx, cy, 104, 81, '#2d3f5f');
+    diamond(c, cx, cy, 60, 46, '#8a3030'); diamond(c, cx, cy, 40, 30, '#d4ad62'); diamond(c, cx, cy, 14, 11, RUG_INK);
+    diamond(m, cx, cy, 120, 95, '#666'); diamond(m, cx, cy, 104, 81, '#000'); diamond(m, cx, cy, 40, 30, '#888');
+    slots.forEach((s, i) => {
+      for (const [ctx, fill, ink] of [[c, s.col, RUG_INK], [m, '#fff', '#fff']]) {
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(s.rot);
+        ctx.fillStyle = fill; ctx.strokeStyle = ink; ctx.lineWidth = 1.3; ctx.lineJoin = 'round';
+        if (replace && replace.slot === i) replace.draw(ctx, s.s);
+        else { rugOrnament(ctx, s.type, s.s); ctx.fill('evenodd'); ctx.stroke(); }
+        ctx.restore();
+      }
+    });
+    // knots: every knot becomes a small rounded tuft (light centre, darker edge) with its own shade
+    const src = c.getImageData(0, 0, KW, KH).data, msk = m.getImageData(0, 0, KW, KH).data;
+    const oc = out.getContext('2d'), bc = bump.getContext('2d');
+    const od = oc.createImageData(KW * PX, KH * PX), bd = bc.createImageData(KW * PX, KH * PX);
+    const tuft = [0.87, 1.0, 0.87];
+    for (let ky = 0; ky < KH; ky++) {
+      for (let kx = 0; kx < KW; kx++) {
+        const k = ky * KW + kx, j = k * 4, n = knotNoise[k], lift = msk[j] / 255;
+        for (let py = 0; py < PX; py++) {
+          for (let px = 0; px < PX; px++) {
+            const t = tuft[px] * tuft[py], o = ((ky * PX + py) * KW * PX + kx * PX + px) * 4;
+            od.data[o] = src[j] * t * n; od.data[o + 1] = src[j + 1] * t * n; od.data[o + 2] = src[j + 2] * t * n; od.data[o + 3] = 255;
+            const hgt = 255 * (0.35 * t + 0.45 * lift);
+            bd.data[o] = bd.data[o + 1] = bd.data[o + 2] = hgt; bd.data[o + 3] = 255;
+          }
+        }
+      }
+    }
+    oc.putImageData(od, 0, 0); bc.putImageData(bd, 0, 0);
+    tex.needsUpdate = true; btex.needsUpdate = true;
+  }
+  const tex = new THREE.CanvasTexture(out);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const btex = new THREE.CanvasTexture(bump);
+  btex.anisotropy = 8;
+  render(null);
   // a real layer on the floor: 3 cm thick, casts its own small shadow at the edges
-  const rug = mesh(new THREE.BoxGeometry(3.6, 0.03, 2.8), mat(0xffffff, { map: tex, rough: 1 }), true);
+  const material = new THREE.MeshStandardMaterial({ map: tex, bumpMap: btex, bumpScale: 2.5, roughness: 1, flatShading: true });
+  const rug = mesh(new THREE.BoxGeometry(RUG.W, 0.03, RUG.D), material, true);
   rug.userData.grain = 'z';
-  rug.position.set(1.1, 0.015, 0.35);
+  rug.position.set(RUG.X, 0.015, RUG.Z);
+  // knot (x, y) → room position on the rug's top
+  const toWorld = (x, y) => new THREE.Vector3(RUG.X - RUG.W / 2 + (x / KW) * RUG.W, 0.03, RUG.Z - RUG.D / 2 + (y / KH) * RUG.D);
+  fx.rug = { mesh: rug, slots, render, toWorld, KW, KH, metresPerKnot: RUG.W / KW };
   return rug;
 }
 
@@ -507,7 +601,7 @@ function buildArmchair() {
   const g = new THREE.Group();
   for (const x of [-0.4, 0.4]) for (const z of [-0.36, 0.36]) g.add(cyl(0.035, 0.03, 0.1, 6, C.woodDark, x, 0, z));
   g.add(box(0.95, 0.28, 0.88, C.green, 0, 0.1, 0));
-  g.add(box(0.66, 0.12, 0.68, C.greenDark, 0, 0.38, 0.06));
+  g.add(box(0.6, 0.12, 0.68, C.greenDark, 0, 0.38, 0.06));          // 2 cm gaps at the arms (things can slip in)
   g.add(box(0.95, 0.68, 0.22, C.green, 0, 0.38, -0.34));
   for (const x of [-0.4, 0.4]) g.add(box(0.16, 0.3, 0.84, C.green, x, 0.38, 0.02));
   const pillow = box(0.36, 0.3, 0.1, C.cream, 0.12, 0.48, -0.17);
@@ -637,12 +731,16 @@ function buildPlant(r) {
   return g;
 }
 
-function buildChest() {
+function buildChest(fx) {
   const g = new THREE.Group();
   g.add(box(0.95, 0.42, 0.52, C.woodLight, 0, 0, 0));
   g.add(box(0.99, 0.12, 0.56, C.wood, 0, 0.42, 0));
   for (const x of [-0.3, 0.3]) g.add(box(0.05, 0.55, 0.575, C.iron, x, 0, 0));
   g.add(box(0.1, 0.12, 0.03, C.brass, 0, 0.32, 0.27));
+  g.add(box(0.008, 0.022, 0.002, C.soot, 0, 0.365, 0.2855)); // keyhole
+  // SOCKET: a place on a PO/BG that can hold a TO inside it (here: a key in the lock).
+  // It moves with the trunk if the room is ever re-arranged.
+  fx.sockets.push({ kind: 'key-lock', parent: g, pos: new THREE.Vector3(0, 0.376, 0.287), out: new THREE.Vector3(0, 0, 1) });
   return g;
 }
 
@@ -795,31 +893,70 @@ function hourglass(x, y, z) {
   return g;
 }
 
-function landscapeTexture() {
-  return canvasTex(256, 172, (c, w, h) => {
-    const sky = c.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, '#f3c98e'); sky.addColorStop(0.6, '#e49a62');
-    c.fillStyle = sky; c.fillRect(0, 0, w, h);
-    c.fillStyle = '#fff1c2'; c.beginPath(); c.arc(w * 0.7, h * 0.42, 16, 0, Math.PI * 2); c.fill();
-    const hill = (col, pts) => { c.fillStyle = col; c.beginPath(); c.moveTo(0, h); pts.forEach(([px, py]) => c.lineTo(px * w, py * h)); c.lineTo(w, h); c.fill(); };
-    hill('#8a9a62', [[0, 0.6], [0.25, 0.48], [0.5, 0.58], [0.8, 0.5], [1, 0.56]]);
-    hill('#56704a', [[0, 0.72], [0.3, 0.64], [0.6, 0.74], [1, 0.66]]);
-    hill('#33493a', [[0, 0.86], [0.4, 0.8], [0.7, 0.88], [1, 0.82]]);
-    c.fillStyle = '#22352a';
-    for (const [tx, ty] of [[0.15, 0.7], [0.2, 0.72], [0.82, 0.68]]) {
-      c.beginPath(); c.moveTo(tx * w, ty * h - 26); c.lineTo(tx * w + 9, ty * h); c.lineTo(tx * w - 9, ty * h); c.fill();
-    }
-  });
+// ---------------------------------------------------------------- paintings (repaintable)
+// A painting can have a Target Object painted into it (a "nested" target, SDD 9.02.2).
+// render(extra) repaints the picture, then lets extra(ctx, w, h) paint something into it.
+function painting(w, h, base, regions) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  let replaced = false, drawn = false;
+  const render = (extra) => {
+    if (!extra && !replaced && drawn) return;            // already the plain picture
+    replaced = !!extra; drawn = true;
+    const ctx = c.getContext('2d');
+    ctx.save(); base(ctx, w, h); ctx.restore();
+    if (extra) { ctx.save(); extra(ctx, w, h); ctx.restore(); }
+    tex.needsUpdate = true;
+  };
+  render(null);
+  return { canvas: c, tex, render, regions };
 }
 
-function stillLifeTexture() {
-  return canvasTex(200, 146, (c, w, h) => {
-    c.fillStyle = '#3b2f2a'; c.fillRect(0, 0, w, h);
-    c.fillStyle = '#6b4a2e'; c.fillRect(0, h * 0.72, w, h * 0.28);
-    c.fillStyle = '#3d6f8f'; c.beginPath(); c.ellipse(w * 0.45, h * 0.6, 22, 30, 0, 0, Math.PI * 2); c.fill();
-    for (const [fx, fy, col] of [[0.38, 0.28, '#c94a3a'], [0.5, 0.22, '#e8c24a'], [0.46, 0.34, '#d9d0c0'], [0.56, 0.32, '#c94a3a']]) {
-      c.fillStyle = col; c.beginPath(); c.arc(fx * w, fy * h, 9, 0, Math.PI * 2); c.fill();
-    }
-    c.fillStyle = '#c9a14a'; c.beginPath(); c.arc(w * 0.75, h * 0.7, 12, 0, Math.PI * 2); c.fill();
-  });
+function drawLandscape(c, w, h) {
+  const s = w / 256;
+  const sky = c.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#f3c98e'); sky.addColorStop(0.6, '#e49a62');
+  c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#fff1c2'; c.beginPath(); c.arc(w * 0.7, h * 0.42, 16 * s, 0, Math.PI * 2); c.fill();
+  const hill = (col, pts) => { c.fillStyle = col; c.beginPath(); c.moveTo(0, h); pts.forEach(([px, py]) => c.lineTo(px * w, py * h)); c.lineTo(w, h); c.fill(); };
+  hill('#8a9a62', [[0, 0.6], [0.25, 0.48], [0.5, 0.58], [0.8, 0.5], [1, 0.56]]);
+  hill('#56704a', [[0, 0.72], [0.3, 0.64], [0.6, 0.74], [1, 0.66]]);
+  hill('#33493a', [[0, 0.86], [0.4, 0.8], [0.7, 0.88], [1, 0.82]]);
+  c.fillStyle = '#22352a';
+  for (const [tx, ty] of [[0.15, 0.7], [0.2, 0.72], [0.82, 0.68]]) {
+    c.beginPath(); c.moveTo(tx * w, ty * h - 26 * s); c.lineTo(tx * w + 9 * s, ty * h); c.lineTo(tx * w - 9 * s, ty * h); c.fill();
+  }
+  // painterly brush texture over everything
+  brushTexture(c, w, h, 0x4c11);
+}
+
+function drawStillLife(c, w, h) {
+  const s = w / 200;
+  c.fillStyle = '#3b2f2a'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#6b4a2e'; c.fillRect(0, h * 0.72, w, h * 0.28);
+  c.fillStyle = '#3d6f8f'; c.beginPath(); c.ellipse(w * 0.45, h * 0.6, 22 * s, 30 * s, 0, 0, Math.PI * 2); c.fill();
+  for (const [fx, fy, col] of [[0.38, 0.28, '#c94a3a'], [0.5, 0.22, '#e8c24a'], [0.46, 0.34, '#d9d0c0'], [0.56, 0.32, '#c94a3a']]) {
+    c.fillStyle = col; c.beginPath(); c.arc(fx * w, fy * h, 9 * s, 0, Math.PI * 2); c.fill();
+  }
+  c.fillStyle = '#c9a14a'; c.beginPath(); c.arc(w * 0.75, h * 0.7, 12 * s, 0, Math.PI * 2); c.fill();
+  brushTexture(c, w, h, 0x7a21);
+}
+
+// Short, faint strokes in random directions, so a painting reads as brushwork (and anything
+// painted into it later gets the same treatment).
+function brushTexture(c, w, h, seed) {
+  const r = rng(seed);
+  c.save();
+  c.globalAlpha = 0.06;
+  c.lineCap = 'round';
+  for (let i = 0; i < (w * h) / 900; i++) {
+    const x = r() * w, y = r() * h, a = r() * Math.PI, l = 4 + r() * 10;
+    c.strokeStyle = r() < 0.5 ? '#000' : '#fff';
+    c.lineWidth = 1 + r() * 2;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
+  }
+  c.restore();
 }

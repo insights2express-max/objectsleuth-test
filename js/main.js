@@ -12,9 +12,9 @@ import { HorizontalTiltShiftShader } from '../vendor/three/addons/shaders/Horizo
 import { VerticalTiltShiftShader } from '../vendor/three/addons/shaders/VerticalTiltShiftShader.js';
 import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
 import { installGradedShadows } from './scene/softshadows.js';
-import { Targets } from './game/targets.js';
+import { Targets, LEVELS } from './game/targets.js';
 
-const BUILD = 'Draft 1 · M1.6 first Target Objects';
+const BUILD = 'Draft 1 · M1.7 Target Objects v2';
 const $ = (id) => document.getElementById(id);
 
 // ---------- renderer & scene ----------
@@ -42,7 +42,7 @@ controls.fit(study.bounds);
 const fx = study.fx;
 // FIRST TARGET OBJECT TEST: added before the style sampler, so they take on each art style too.
 const VIEW_DIR = new THREE.Vector3(1, 0.95, 1.2);
-const targets = new Targets(study.root, VIEW_DIR);
+const targets = new Targets(study.root, study.fx, VIEW_DIR);
 const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, ...fx.windowMats]);
 
 // Miniature filter: blurs the top and bottom of the picture (tilt-shift) and adds a little
@@ -63,7 +63,7 @@ const gtaoHide = gtao._overrideVisibility.bind(gtao);
 gtao._overrideVisibility = function () {
   gtaoHide();
   this.scene.traverse((o) => {
-    if (o.isMesh && o.visible && (o.material.transparent || o.material.colorWrite === false || o.material.isMeshBasicMaterial)) {
+    if ((o.isMesh && o.visible && (o.material.transparent || o.material.colorWrite === false || o.material.isMeshBasicMaterial)) || (o.isSprite && o.visible)) {
       o.visible = false;
       this._visibilityCache.push(o);
     }
@@ -223,8 +223,21 @@ $('newround').addEventListener('click', () => {
   findMsg.hidden = false; findMsg.textContent = 'Hiding…';
   setTimeout(() => targets.newRound(), 30); // let the note show before the (short) search
 });
+// CHAL LVL (test-only switch for now): Low / Medium / High concealment
+const chalSel = $('chal');
+Object.entries(LEVELS).forEach(([k, v]) => chalSel.add(new Option('CHAL LVL: ' + v.label, k)));
+try { const c = localStorage.getItem('objectsleuth.chal'); if (LEVELS[c]) targets.level = c; } catch (e) { /* ignore */ }
+if (LEVELS[params.get('chal')]) targets.level = params.get('chal');
+chalSel.value = targets.level;
+chalSel.addEventListener('change', () => {
+  targets.level = chalSel.value;
+  try { localStorage.setItem('objectsleuth.chal', chalSel.value); } catch (e) { /* ignore */ }
+  chalSel.blur();
+  findMsg.hidden = false; findMsg.textContent = 'Hiding…';
+  setTimeout(() => targets.newRound(), 30);
+});
 targets.newRound(params.get('round') ? Number(params.get('round')) : undefined);
-window.objectsleuth = { targets, camera, THREE }; // (for testing in the browser console)
+window.objectsleuth = { targets, camera, THREE, fx: study.fx }; // (for testing in the browser console)
 
 // ---------- main loop ----------
 const fpsEl = $('fps');

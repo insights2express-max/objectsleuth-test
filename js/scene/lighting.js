@@ -76,8 +76,10 @@ export class Lighting {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 1, far: 40 });
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.02;
+    // small margins (OS-10: 1.1): the old 2 cm margin hid the shadows of thin objects (keys, watches).
+    // Three.js draws shadows from back faces, so tiny margins don't cause self-shadow speckles.
+    sun.shadow.bias = -0.00005;
+    sun.shadow.normalBias = 0.004;
     sun.target.position.copy(TARGET);
     scene.add(sun, sun.target);
     this.sun = sun;
@@ -95,9 +97,18 @@ export class Lighting {
     this.fireOutside = f.position.clone();
     this.fireInside = new THREE.Vector3(0, 0.5, -2.68);
     f.shadow.mapSize.set(1024, 1024);
-    f.shadow.camera.near = 0.05;
-    f.shadow.bias = -0.003;
-    f.shadow.radius = 2.5;
+    f.shadow.camera.near = 0.2;          // a nearer limit wastes depth precision → light leaks
+    f.shadow.bias = -0.0002;             // was -0.003: up to 13 cm off at the hearth → light leaking past the stone
+    f.shadow.normalBias = 0.008;
+    f.shadow.radius = 0.12;              // < 1 → graded shadows; = flame size in metres (softshadows.js)
+    // bounce light (OS-10: 1.4): firelight reflected off the firebox back wall. It has its own shadows,
+    // so the spaces right under the logs (lit by neither) stay deep dark; it fades fast with distance.
+    const b = fx.bounceLight;
+    b.shadow.mapSize.set(256, 256);
+    b.shadow.camera.near = 0.2;
+    b.shadow.bias = -0.0003;
+    b.shadow.normalBias = 0.01;
+    b.shadow.radius = 0.35;              // a broad, soft source
     this.softShadows = false;
     this.fireShadows = false;
     this.set('auto', true);
@@ -171,6 +182,11 @@ export class Lighting {
     } else {
       f.position.copy(this.fireOutside);
     }
+    // bounce light: only with fire shadows (without shadows nothing is pitch dark anyway)
+    const b = fx.bounceLight, bounceOn = this.fireShadows && fire.level > 0.075;
+    b.intensity = bounceOn ? c.fireI * fire.level * fire.flicker * 0.3 : 0;
+    b.castShadow = bounceOn;
+    b.visible = bounceOn;
     fx.lamps.forEach((l) => { l.light.intensity = l.base * c.lampI; });
     fx.bulbMats.forEach((m) => m.color.copy(BULB_OFF).lerp(BULB_ON, Math.min(1, c.lampI)));
     fx.shadeMats.forEach((m) => { m.emissiveIntensity = 0.55 * c.lampI; });
