@@ -12,8 +12,9 @@ import { HorizontalTiltShiftShader } from '../vendor/three/addons/shaders/Horizo
 import { VerticalTiltShiftShader } from '../vendor/three/addons/shaders/VerticalTiltShiftShader.js';
 import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
 import { installGradedShadows } from './scene/softshadows.js';
+import { Targets } from './game/targets.js';
 
-const BUILD = 'Draft 1 · M1.4 skins v2 + Light Lab';
+const BUILD = 'Draft 1 · M1.5 first Target Objects';
 const $ = (id) => document.getElementById(id);
 
 // ---------- renderer & scene ----------
@@ -34,11 +35,14 @@ const lighting = new Lighting(scene, renderer, study.fx, study.compassTurn);
 
 // Isometric-style view from the front-right, looking into the room.
 const controls = new ViewControls(camera, canvas, { maxZoom: 20 });
-controls.setView(new THREE.Vector3(0, 1.2, 0), new THREE.Vector3(1, 0.95, 1.2), 40);
+controls.setView(new THREE.Vector3(0, 1.2, 0), new THREE.Vector3(1, 0.95, 1.2), 40); // = VIEW_DIR
 controls.fit(study.bounds);
 
 // ---------- STYLE SAMPLER (test feature) ----------
 const fx = study.fx;
+// FIRST TARGET OBJECT TEST: added before the style sampler, so they take on each art style too.
+const VIEW_DIR = new THREE.Vector3(1, 0.95, 1.2);
+const targets = new Targets(study.root, VIEW_DIR);
 const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, ...fx.windowMats]);
 
 // Miniature filter: blurs the top and bottom of the picture (tilt-shift) and adds a little
@@ -53,12 +57,13 @@ const gtao = new GTAOPass(scene, camera, 1, 1, undefined,
 gtao.blendIntensity = 1.0;
 const gtaoSetSize = gtao.setSize.bind(gtao);
 gtao.setSize = (w, h) => { const k = renderer.getPixelRatio() > 1.25 ? 0.5 : 1; gtaoSetSize(Math.ceil(w * k), Math.ceil(h * k)); };
-// Things that must not shade: see-through glass, light shafts, and the invisible shadow-only shell.
+// Things that must not shade: see-through glass, light shafts, the invisible shadow-only shell,
+// and things that give off light (flames, bulbs: they glow, so nothing darkens them or around them).
 const gtaoHide = gtao._overrideVisibility.bind(gtao);
 gtao._overrideVisibility = function () {
   gtaoHide();
   this.scene.traverse((o) => {
-    if (o.isMesh && o.visible && (o.material.transparent || o.material.colorWrite === false)) {
+    if (o.isMesh && o.visible && (o.material.transparent || o.material.colorWrite === false || o.material.isMeshBasicMaterial)) {
       o.visible = false;
       this._visibilityCache.push(o);
     }
@@ -194,6 +199,33 @@ if (params.get('zoom')) {
   controls.focusOn(new THREE.Vector3(x, y, z), Number(params.get('zoom')));
 }
 
+// ---------- FIND LIST (first Target Object test: no scoring, no timer) ----------
+const findList = $('findlist'), findMsg = $('findmsg');
+targets.onChange = (tg) => {
+  findList.innerHTML = '';
+  for (const it of tg.items) {
+    const li = document.createElement('li');
+    li.textContent = it.icon + ' ' + it.name;
+    if (it.found) li.className = 'found';
+    findList.appendChild(li);
+  }
+  const done = tg.items.every((it) => it.found);
+  findMsg.textContent = done ? 'All found! ✓' : '';
+  findMsg.hidden = !done;
+};
+controls.onTap = (cx, cy) => {
+  const r = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+  const pxPerUnit = r.height / ((camera.top - camera.bottom) / camera.zoom);
+  targets.tap(ndc, camera, pxPerUnit);
+};
+$('newround').addEventListener('click', () => {
+  findMsg.hidden = false; findMsg.textContent = 'Hiding…';
+  setTimeout(() => targets.newRound(), 30); // let the note show before the (short) search
+});
+targets.newRound(params.get('round') ? Number(params.get('round')) : undefined);
+window.objectsleuth = { targets, camera, THREE }; // (for testing in the browser console)
+
 // ---------- main loop ----------
 const fpsEl = $('fps');
 let last = performance.now(), frames = 0, acc = 0;
@@ -206,6 +238,7 @@ renderer.setAnimationLoop(() => {
   controls.update(dt);
   lighting.update(dt, t);
   study.animate(t, lighting.hours());
+  targets.update(dt);
   if (miniature || lab.ao) composer.render(dt); else renderer.render(scene, camera);
   frames++; acc += dt;
   if (frames % 10 === 0) showTestClock();

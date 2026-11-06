@@ -59,7 +59,10 @@ export function buildStudy() {
     // the afternoon, both around noon). See sun.js → compassDir().
     compassTurn: 135,
     animate(t, hours) {
-      // flames flicker
+      const dt = Math.min(0.1, Math.max(0, t - (this.lastT ?? t)));
+      this.lastT = t;
+      animateFire(fx, t, dt, hours);
+      // candle flames flicker
       for (const f of fx.flames) {
         const u = f.userData;
         f.scale.y = u.base * (1 + 0.18 * Math.sin(t * 9 + u.phase) + 0.08 * Math.sin(t * 23 + u.phase * 2));
@@ -106,15 +109,24 @@ function buildWalls(fx) {
   capB.castShadow = capL.castShadow = false;
   g.add(capB, capL);
   // wood panelling on the lower walls
-  g.add(box(8.0, 0.9, 0.03, C.wainscot, 0, 0, -2.985));
-  g.add(box(8.0, 0.05, 0.07, C.rail, 0, 0.88, -2.965));
-  g.add(box(0.03, 0.9, 6.0, C.wainscot, -3.985, 0, 0));
-  g.add(box(0.07, 0.05, 6.0, C.rail, -3.965, 0.88, 0));
-  for (let x = -3.6; x < 4; x += 0.8) g.add(box(0.05, 0.74, 0.02, C.rail, x, 0.07, -2.96));
+  // Back wall: the panelling stops where the fireplace and the bookcases stand, so it never pokes
+  // through them (it used to show as thin flickering streaks in Low-poly).
+  const covered = [[-3.2, -1.4], [-0.91, 0.91], [1.4, 3.2]];   // bookcase, fireplace, bookcase
+  const gaps = [[-4.0, -3.2], [-1.4, -0.91], [0.91, 1.4], [3.2, 4.0]];
+  for (const [x0, x1] of gaps) {
+    g.add(box(x1 - x0, 0.9, 0.03, C.wainscot, (x0 + x1) / 2, 0, -2.985));
+    g.add(box(x1 - x0, 0.05, 0.07, C.rail, (x0 + x1) / 2, 0.88, -2.965));
+  }
+  g.add(box(0.03, 0.9, 5.97, C.wainscot, -3.985, 0, 0.015));        // left wall starts after the corner
+  g.add(box(0.07, 0.05, 5.93, C.rail, -3.965, 0.88, 0.035));
+  for (let x = -3.6; x < 4; x += 0.8) {
+    if (covered.some(([a, b]) => x > a - 0.05 && x < b + 0.05)) continue;
+    g.add(box(0.05, 0.74, 0.02, C.rail, x, 0.07, -2.96));
+  }
   for (let z = -2.6; z < 3; z += 0.8) g.add(box(0.02, 0.74, 0.05, C.rail, -3.96, 0.07, z));
   // picture rail
   g.add(box(8.0, 0.04, 0.04, C.rail, 0, 2.7, -2.98));
-  g.add(box(0.04, 0.04, 6.0, C.rail, -3.98, 2.7, 0));
+  g.add(box(0.04, 0.04, 5.96, C.rail, -3.98, 2.7, 0.02));
 
   // window frame, glass, sill
   const fm = C.cream;
@@ -166,7 +178,7 @@ function buildWalls(fx) {
   // curtains, rod and finials
   for (const z of [-0.22, 1.82]) {
     g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z - 0.1));
-    g.add(box(0.1, 2.1, 0.12, C.redDark, -3.9, 0.75, z));
+    g.add(box(0.1, 2.1, 0.12, C.redDark, -3.92, 0.75, z));      // set back: folds, no flush faces
     g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z + 0.1));
     g.add(box(0.12, 0.05, 0.36, C.brass, -3.89, 1.45, z));
   }
@@ -202,7 +214,7 @@ function buildFireplace(r, fx) {
   const hearth = box(2.2, 0.05, 0.62, C.stoneDark, 0, 0, zf + 0.58); // hearth
   hearth.userData.grain = 'z';                                      // knit runs across it, unlike the floor boards
   g.add(hearth);
-  g.add(box(1.12, 0.02, 0.4, C.soot, 0, 0.05, zf + 0.22));
+  g.add(box(1.12, 0.02, 0.38, C.soot, 0, 0.05, zf + 0.21));       // stops short of the pillar fronts
   // andirons and logs
   for (const x of [-0.3, 0.3]) g.add(box(0.04, 0.16, 0.36, C.iron, x, 0.05, zf + 0.25));
   [-0.32, 0.28].forEach((ry, i) => {
@@ -211,14 +223,26 @@ function buildFireplace(r, fx) {
     log.position.set(0, 0.19 + i * 0.1, zf + 0.25);
     g.add(log);
   });
-  // flames (always bright) + flickering firelight
-  const fa = glow(0xff8a2a), fb = glow(0xffd36a);
+  // glowing embers on the grate (they show most when the flames have died down at night)
+  fx.embers = [];
+  for (let i = 0; i < 9; i++) {
+    const e = new THREE.Mesh(new THREE.IcosahedronGeometry(range(r, 0.025, 0.045), 0), glow(0xff5a1a));
+    e.position.set(range(r, -0.3, 0.3), range(r, 0.08, 0.13), zf + range(r, 0.14, 0.34));
+    e.rotation.set(r() * 3, r() * 3, r() * 3);
+    e.userData = { phase: r() * 10, speed: range(r, 0.4, 0.9) };
+    g.add(e);
+    fx.embers.push(e);
+  }
+  // fire flames: each lives its own random life (height, width, brightness, how long each flare lasts)
+  fx.fireFlames = [];
+  const fb = glow(0xffd36a);
   for (let i = 0; i < 4; i++) {
-    const f = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.36, 5), i % 2 ? fb : fa);
-    f.position.set(-0.24 + i * 0.16, 0.42, zf + 0.25);
-    f.userData = { base: range(r, 0.8, 1.2), phase: r() * 10 };
+    const geo = new THREE.ConeGeometry(0.09, 0.36, 5).translate(0, 0.18, 0); // grows up from its base
+    const f = new THREE.Mesh(geo, glow(0xff8a2a));
+    f.position.set(-0.24 + i * 0.16, 0.25, zf + 0.25);
+    f.userData = { h: 0.8, w: 1, b: 0.7, th: 0.8, tw: 1, tb: 0.7, next: 0, rate: 6, phase: r() * 10 };
     g.add(f);
-    fx.flames.push(f);
+    fx.fireFlames.push(f);
   }
   const fire = new THREE.PointLight(0xff8a3a, 4, 9, 1.4);
   fire.position.set(0, 0.55, zf + 0.7);
@@ -255,10 +279,12 @@ function buildBookcase(r, books, cx, opt) {
   const W = 1.8, H = 2.6, D = 0.4, t = 0.05, z0 = -3.0, cz = z0 + D / 2;
   g.add(box(t, H, D, C.wood, cx - W / 2 + t / 2, 0, cz));
   g.add(box(t, H, D, C.wood, cx + W / 2 - t / 2, 0, cz));
-  g.add(box(W, t, D, C.wood, cx, H - t, cz));
+  // top, bottom and back fit BETWEEN the sides (no faces flush with the sides → no flicker)
+  const Wi = W - 2 * t - 0.002;
+  g.add(box(Wi, t, D - 0.004, C.wood, cx, H - t, cz));
   g.add(box(W + 0.12, 0.08, D + 0.06, C.woodDark, cx, H, cz + 0.01));
-  g.add(box(W, 0.12, D, C.woodDark, cx, 0, cz));
-  g.add(box(W, H, 0.02, C.woodDark, cx, 0, z0 + 0.055));        // in front of the wall panelling
+  g.add(box(Wi, 0.12, D - 0.004, C.woodDark, cx, 0, cz));
+  g.add(box(Wi, H - 0.004, 0.02, C.woodDark, cx, 0, z0 + 0.055));  // in front of the wall
   const levels = [0.12, 0.62, 1.12, 1.62, 2.12];
   levels.slice(1).forEach((y) => g.add(box(W - 2 * t, 0.04, D - 0.02, C.wood, cx, y - 0.04, cz)));
   const xa = cx - W / 2 + t + 0.02, xb = cx + W / 2 - t - 0.02;
@@ -428,10 +454,11 @@ function buildDesk(r, fx, books) {
     p.castShadow = false;
     g.add(p);
   });
-  g.add(cyl(0.035, 0.042, 0.06, 6, C.ink, -0.45, H, -0.18));
-  const quill = box(0.015, 0.003, 0.26, C.cream, -0.43, H + 0.07, -0.12);
-  quill.rotation.set(0.9, 0.3, 0);
-  g.add(quill);
+  // inkwell (squat glass pot with a neck) and a quill dipped in it
+  g.add(cyl(0.032, 0.04, 0.045, 10, C.ink, -0.45, H, -0.18));
+  g.add(cyl(0.018, 0.024, 0.014, 10, C.ink, -0.45, H + 0.045, -0.18));
+  g.add(cyl(0.021, 0.021, 0.005, 10, C.brass, -0.45, H + 0.059, -0.18));
+  g.add(buildQuill(-0.45, H + 0.062, -0.18));
   // open book (two pages tilted up)
   for (const s of [-1, 1]) {
     const pg = box(0.16, 0.012, 0.22, C.paper, -0.22 + s * 0.08, H + 0.005, 0.18);
@@ -526,23 +553,37 @@ function buildFloorLamp(fx) {
   return g;
 }
 
+// A rod (cylinder) running from point a to point b.
+function rod(a, b, r0, r1, color, sides = 6) {
+  const d = new THREE.Vector3().subVectors(b, a);
+  const m = mesh(new THREE.CylinderGeometry(r1, r0, d.length(), sides), color);
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  return m;
+}
+
+// Desk globe: a tripod whose legs splay OUT to the floor, a turned stem, and a brass meridian
+// ring (in the plane of the tilted axis) that holds the globe by pins at both poles.
 function buildGlobe(r) {
   const g = new THREE.Group();
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
   for (let i = 0; i < 3; i++) {
-    const leg = box(0.04, 0.5, 0.04, C.woodDark, 0, 0, 0);
-    const a = (i / 3) * Math.PI * 2;
-    leg.position.set(Math.cos(a) * 0.16, 0.25, Math.sin(a) * 0.16);
-    leg.rotation.set(Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3);
-    g.add(leg);
+    const a = (i / 3) * Math.PI * 2 + 0.5, c = Math.cos(a), s = Math.sin(a);
+    g.add(rod(V(c * 0.06, 0.5, s * 0.06), V(c * 0.27, 0.0, s * 0.27), 0.022, 0.016, C.woodDark));
+    g.add(cyl(0.028, 0.03, 0.02, 6, C.woodDark, c * 0.27, 0, s * 0.27));          // feet
+    g.add(rod(V(c * 0.13, 0.27, s * 0.13), V(Math.cos(a + 2.094) * 0.13, 0.27, Math.sin(a + 2.094) * 0.13), 0.008, 0.008, C.wood, 5)); // stretcher
   }
-  g.add(cyl(0.12, 0.08, 0.05, 8, C.wood, 0, 0.48, 0));
-  g.add(cyl(0.02, 0.02, 0.2, 6, C.brass, 0, 0.53, 0));
+  g.add(cyl(0.075, 0.09, 0.07, 8, C.wood, 0, 0.47, 0));                            // hub
+  g.add(cyl(0.025, 0.04, 0.12, 8, C.wood, 0, 0.54, 0));                            // turned stem
+  g.add(cyl(0.03, 0.03, 0.02, 8, C.brass, 0, 0.64, 0));                            // brass collar
+  const brass = mat(C.brass, { rough: 0.4, metal: 0.3 });
+  const meridian = mesh(new THREE.TorusGeometry(0.33, 0.012, 5, 32), brass);       // in the axis plane: its lowest point
+  meridian.position.set(0, 0.98, 0);                                               // sits right on the stem
+  g.add(meridian);
   const tilt = new THREE.Group();
   tilt.position.set(0, 0.98, 0);
   tilt.rotation.z = 0.41;
-  const ring = mesh(new THREE.TorusGeometry(0.33, 0.014, 4, 24), mat(C.brass, { rough: 0.4, metal: 0.3 }));
-  ring.rotation.y = Math.PI / 2;
-  tilt.add(ring);
+  for (const sy of [-1, 1]) tilt.add(cyl(0.008, 0.008, 0.04, 6, C.brass, 0, sy > 0 ? 0.295 : -0.335, 0)); // pole pins
   const tex = canvasTex(256, 128, (c, w, h) => {
     c.fillStyle = '#2f5f86'; c.fillRect(0, 0, w, h);
     c.fillStyle = '#c9b77a';
@@ -556,6 +597,27 @@ function buildGlobe(r) {
   tilt.add(ball);
   g.add(tilt);
   return { group: g, ball };
+}
+
+// Quill pen: a feather about 7× wider near the top than at the nib; the lowest 20 % sits in the ink.
+function buildQuill(x, y, z) {
+  const L = 0.26, g = new THREE.Group();
+  const q = new THREE.Group();
+  q.position.y = -0.2 * L;                                   // the tip goes 20 % into the inkwell
+  const sh = new THREE.Shape();                              // the vane, one side wider (like a real feather)
+  sh.moveTo(0.0015, 0.28 * L);
+  sh.bezierCurveTo(0.012, 0.42 * L, 0.024, 0.62 * L, 0.02, 0.86 * L);
+  sh.bezierCurveTo(0.017, 0.95 * L, 0.006, 0.995 * L, 0, L);
+  sh.bezierCurveTo(-0.006, 0.97 * L, -0.016, 0.86 * L, -0.017, 0.62 * L);
+  sh.bezierCurveTo(-0.016, 0.45 * L, -0.006, 0.33 * L, -0.0015, 0.28 * L);
+  const vane = mesh(new THREE.ShapeGeometry(sh, 10), mat(C.cream, { rough: 0.8, side: THREE.DoubleSide }));
+  q.add(vane);
+  q.add(cyl(0.0012, 0.0028, L * 0.98, 5, 0xe8dcc0, 0, 0.01, 0));                  // the shaft
+  q.add(cyl(0.0028, 0.0005, 0.012, 5, C.ink, 0, 0, 0));                            // inked nib
+  g.add(q);
+  g.position.set(x, y, z);
+  g.rotation.set(0.15, 0.6, -0.42);                         // leaning out of the pot
+  return g;
 }
 
 function buildPlant(r) {
@@ -584,16 +646,56 @@ function buildChest() {
   return g;
 }
 
+// Fireplace companion set: a stand with three hanging tools – poker, tongs and shovel.
 function buildFireTools() {
   const g = new THREE.Group();
-  g.add(cyl(0.11, 0.13, 0.03, 8, C.iron));
-  g.add(cyl(0.012, 0.012, 0.8, 5, C.iron, 0, 0.03, 0));
-  for (const [x, z] of [[0.05, 0], [-0.03, 0.04], [-0.02, -0.05]]) {
-    const t = cyl(0.008, 0.008, 0.7, 4, C.iron, x, 0.05, z);
-    t.rotation.z = x * 1.5;
-    g.add(t);
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const iron = C.iron, brass = mat(C.brass, { rough: 0.4, metal: 0.4 });
+  g.add(cyl(0.11, 0.13, 0.03, 8, iron));                                    // base
+  g.add(cyl(0.011, 0.011, 0.82, 6, iron, 0, 0.03, 0));                     // post
+  g.add(cyl(0.035, 0.035, 0.025, 8, brass, 0, 0.85, 0));                   // brass finial
+  const hooks = [0.3, 2.4, 4.5];                                            // three arms near the top
+  hooks.forEach((a) => g.add(rod(V(0, 0.8, 0), V(Math.cos(a) * 0.075, 0.82, Math.sin(a) * 0.075), 0.005, 0.005, iron, 4)));
+  const at = (a, r = 0.075) => [Math.cos(a) * r, Math.sin(a) * r];
+  // 1) POKER: straight rod, ring handle, a hooked spur at the tip
+  {
+    const [x, z] = at(hooks[0]);
+    g.add(cyl(0.006, 0.006, 0.66, 6, iron, x, 0.1, z));
+    const ring = mesh(new THREE.TorusGeometry(0.022, 0.005, 4, 10), brass);
+    ring.position.set(x, 0.79, z);
+    ring.rotation.y = hooks[0];
+    g.add(ring);
+    g.add(rod(V(x, 0.14, z), V(x + 0.03, 0.1, z), 0.005, 0.004, iron, 4));    // spur
+    g.add(rod(V(x, 0.1, z), V(x, 0.06, z), 0.006, 0.003, iron, 4));          // point
   }
-  g.add(cyl(0.05, 0.05, 0.03, 8, C.brass, 0, 0.83, 0));
+  // 2) TONGS: two arms hinged near the top, slightly open, with flat grips at the bottom
+  {
+    const [x, z] = at(hooks[1]);
+    const t = Math.atan2(z, x) + Math.PI / 2, ox = Math.cos(t) * 0.012, oz = Math.sin(t) * 0.012;
+    for (const s of [-1, 1]) {
+      g.add(rod(V(x, 0.62, z), V(x + s * ox, 0.12, z + s * oz), 0.005, 0.005, iron, 4));
+      const grip = box(0.012, 0.05, 0.012, iron, x + s * ox * 1.05, 0.07, z + s * oz * 1.05);
+      g.add(grip);
+    }
+    g.add(cyl(0.008, 0.008, 0.015, 6, brass, x, 0.61, z));                  // hinge
+    g.add(cyl(0.005, 0.005, 0.15, 6, iron, x, 0.63, z));
+    const loop = mesh(new THREE.TorusGeometry(0.018, 0.004, 4, 10), brass);
+    loop.position.set(x, 0.8, z);
+    loop.rotation.y = hooks[1];
+    g.add(loop);
+  }
+  // 3) SHOVEL: handle, rod, and a flat blade with a raised back lip
+  {
+    const [x, z] = at(hooks[2]);
+    g.add(cyl(0.006, 0.006, 0.6, 6, iron, x, 0.2, z));
+    g.add(cyl(0.012, 0.012, 0.06, 6, brass, x, 0.74, z));                   // handle
+    const blade = new THREE.Group();
+    blade.position.set(x, 0.05, z);
+    blade.rotation.y = -hooks[2];
+    blade.add(box(0.012, 0.15, 0.11, iron, 0, 0, 0));                       // the blade (thin plate)
+    blade.add(box(0.03, 0.02, 0.11, iron, 0.012, 0, 0));                    // turned-up lip
+    g.add(blade);
+  }
   return g;
 }
 
@@ -607,6 +709,66 @@ function buildLogBasket() {
     g.add(log);
   }
   return g;
+}
+
+// ---------------------------------------------------------------- the fire's day (OS-8: 5)
+// level = fire intensity (light it gives), embers = how brightly the embers glow. Times are hours.
+//   9:00–9:15  a new fire is lit: kindling grows to full
+//   9:15–21:00 full fire (each flame varies, so it moves between ~80 and 100 %)
+//   21:00–24:00 dies down to low flames (→ 50 %)
+//   0:00–3:00  flames shrink away; bright glowing embers by 3:00 (→ 10 %), slowly pulsing
+//   3:00–6:00  embers fade to a low glow; 6:00–9:00 a steady faint glow inside the firebox only
+export function fireState(h) {
+  const k = (a, b) => Math.min(1, Math.max(0, (h - a) / (b - a)));
+  const ease = (x) => x * x * (3 - 2 * x);
+  let level, embers;
+  if (h >= 9 && h < 9.25) { level = 0.06 + 0.84 * ease(k(9, 9.25)); embers = 0.35 + 0.25 * k(9, 9.25); }
+  else if (h >= 9.25 && h < 21) { level = 0.9; embers = 0.6; }
+  else if (h >= 21) { level = 0.9 - 0.4 * k(21, 24); embers = 0.6; }
+  else if (h < 3) { level = 0.5 - 0.4 * k(0, 3); embers = 0.6 + 0.4 * k(0, 3); }
+  else if (h < 6) { level = 0.1 - 0.04 * k(3, 6); embers = 1.0 - 0.65 * k(3, 6); }
+  else { level = 0.06; embers = 0.35; }
+  const flames = Math.min(1, Math.max(0, (level - 0.1) / 0.8)); // how big the flames are (0 = none)
+  return { level, embers, flames };
+}
+
+const FLAME_DIM = new THREE.Color(0xff5a14), FLAME_BRIGHT = new THREE.Color(0xffe28a);
+const EMBER_DIM = new THREE.Color(0x3a0c04), EMBER_HOT = new THREE.Color(0xff7a2a);
+
+function animateFire(fx, t, dt, hours) {
+  const st = fireState(hours);
+  let sum = 0;
+  for (const f of fx.fireFlames) {
+    const u = f.userData;
+    if (t >= u.next) { // each flame picks a new random "mood" for a random while
+      u.th = 0.55 + Math.random() * 0.7;
+      u.tw = 0.75 + Math.random() * 0.5;
+      u.tb = Math.min(1, 0.25 + 0.6 * (u.th - 0.55) / 0.7 + Math.random() * 0.3); // taller → brighter
+      u.rate = 3 + Math.random() * 9;
+      u.next = t + 0.12 + Math.random() * 0.9;
+    }
+    const k = 1 - Math.exp(-dt * u.rate);
+    u.h += (u.th - u.h) * k; u.w += (u.tw - u.w) * k; u.b += (u.tb - u.b) * k;
+    const lick = 1 + 0.07 * Math.sin(t * 19 + u.phase) + 0.04 * Math.sin(t * 31 + u.phase * 2);
+    const F = st.flames;
+    f.visible = F > 0.02;
+    f.scale.set(u.w * (0.45 + 0.55 * F), Math.max(0.001, u.h * F * lick), u.w * (0.45 + 0.55 * F));
+    f.material.color.copy(FLAME_DIM).lerp(FLAME_BRIGHT, u.b);
+    sum += u.h * u.b;
+  }
+  for (const e of fx.embers) { // slow pulsing glow
+    const u = e.userData;
+    const p = 0.8 + 0.2 * Math.sin(t * u.speed + u.phase);
+    e.material.color.copy(EMBER_DIM).lerp(EMBER_HOT, Math.min(1, st.embers * p));
+  }
+  const avg = sum / fx.fireFlames.length;                 // ~0.45 on average
+  const ember = 0.85 + 0.15 * Math.sin(t * 0.7);
+  fx.fire = {
+    level: st.level,
+    flames: st.flames,
+    // brighter flames → more light; with no flames, the slow ember pulse
+    flicker: st.flames > 0.02 ? (0.7 + 0.65 * avg) * st.flames + ember * (1 - st.flames) : ember,
+  };
 }
 
 // ---------------------------------------------------------------- small helpers

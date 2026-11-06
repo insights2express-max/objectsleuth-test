@@ -106,6 +106,29 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
   pointer-events: none;
 }
 
+/* FIND LIST (first Target Object test) – bottom centre, above the test clock row */
+#findbar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 96px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 10px;
+  max-width: calc(100vw - 24px);
+  padding: 6px 6px 6px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+#findbar .tag { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: var(--gold); }
+#findlist { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font-size: 16px; }
+#findlist li.found { text-decoration: line-through; opacity: 0.45; }
+#findmsg { color: var(--gold); font-weight: 800; }
+
 /* TEST ONLY: the light lab (same look as the style sampler, one row lower) */
 #lightlab {
   position: fixed;

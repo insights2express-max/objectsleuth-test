@@ -62,6 +62,14 @@
     <button type="button" id="tc-live" title="Back to the real clock">Live</button>
   </div>
 
+  <!-- FIRST TARGET OBJECT TEST: what to find (tap an object in the room to find it). -->
+  <div id="findbar" role="group" aria-label="Find list">
+    <span class="tag">FIND</span>
+    <ul id="findlist"></ul>
+    <span id="findmsg" hidden></span>
+    <button type="button" id="newround" title="Hide the objects somewhere new">🔄 New round</button>
+  </div>
+
   <div id="info"><span id="build"></span> · <span id="fps">– fps</span> · <span id="offline">…</span></div>
 
   <script type="module" src="js/main.js"></script>

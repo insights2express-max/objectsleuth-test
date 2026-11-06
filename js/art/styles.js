@@ -3,7 +3,7 @@
 // and draws a fine surface pattern in code, so it stays sharp at any zoom.
 import * as THREE from '../../vendor/three/three.module.js';
 import { RoundedBoxGeometry } from '../../vendor/three/addons/geometries/RoundedBoxGeometry.js';
-import { skin, driftTexture } from './skins.js';
+import { skin } from './skins.js';
 
 // Skin styles (v2, M1.4): each object's surface = a fine baked "base" + one-off marks scattered
 // one at a time by dice rolls (never repeating) + a gentle large-scale tone drift.
@@ -55,7 +55,7 @@ const SKIN_VERT_MAIN = `
   #endif
 #endif`;
 const SKIN_FRAG = `
-uniform sampler2D uSkin; uniform sampler2D uMarks; uniform sampler2D uDrift;
+uniform sampler2D uSkin; uniform sampler2D uMarks;
 uniform float uTile; uniform float uBump; uniform float uTone; uniform float uDriftTone; uniform float uVary; uniform float uRot;
 uniform float uMix2; uniform float uCell; uniform float uProb; uniform vec2 uMark;
 varying vec3 vLP; varying vec3 vLN; varying float vSeed;
@@ -63,6 +63,28 @@ varying vec3 vLP; varying vec3 vLN; varying float vSeed;
 varying vec3 vGrain; varying vec3 vGrain2;
 #endif
 float skHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec2 skHash2(vec2 p) { return vec2(skHash(p), skHash(p + 17.31)); }
+// smooth random "value noise", computed on the spot: no picture, so it never repeats
+float skNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(skHash(i), skHash(i + vec2(1.0, 0.0)), f.x), mix(skHash(i + vec2(0.0, 1.0)), skHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// "Shuffled tiling": the surface is split into small triangles; each corner of a triangle takes the
+// picture from a random place, and the three are blended. Neighbouring patches never match, so no
+// repeat can form (stochastic texturing, after Heitz & Neyret / Mikkelsen).
+vec4 skinShuffled(vec2 uv, vec2 ux, vec2 uy) {
+  vec2 s = mat2(1.0, 0.0, -0.57735027, 1.15470054) * (uv * 3.4641016 * 0.55);
+  vec2 b = floor(s), fr = fract(s);
+  float wz = 1.0 - fr.x - fr.y;
+  vec3 w; vec2 v1, v2, v3;
+  if (wz > 0.0) { w = vec3(wz, fr.y, fr.x); v1 = b; v2 = b + vec2(0.0, 1.0); v3 = b + vec2(1.0, 0.0); }
+  else { w = vec3(-wz, 1.0 - fr.y, 1.0 - fr.x); v1 = b + vec2(1.0); v2 = b + vec2(1.0, 0.0); v3 = b + vec2(0.0, 1.0); }
+  w = w * w * w; w /= (w.x + w.y + w.z);              // sharper blend keeps the surface crisp
+  vec4 c1 = textureGrad(uSkin, uv + skHash2(v1) * 7.0, ux, uy);
+  vec4 c2 = textureGrad(uSkin, uv + skHash2(v2) * 7.0, ux, uy);
+  vec4 c3 = textureGrad(uSkin, uv + skHash2(v3) * 7.0, ux, uy);
+  return w.x * c1 + w.y * c2 + w.z * c3;
+}
 // The skin's "up" direction inside one projection plane (axes e1, e2).
 vec2 skinDir(vec3 e1, vec3 e2) {
   float a = (vSeed - 0.5) * 6.2831 * uRot;
@@ -83,15 +105,17 @@ vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o) {
   vec2 p2 = vec2(dot(vLP, e1), dot(vLP, e2));
   vec2 gx2 = vec2(dot(dpx, e1), dot(dpx, e2)), gy2 = vec2(dot(dpy, e1), dot(dpy, e2));
   vec2 q = vec2(dot(p2, dp), dot(p2, d)), qx = vec2(dot(gx2, dp), dot(gx2, d)), qy = vec2(dot(gy2, dp), dot(gy2, d));
-  vec4 a = textureGrad(uSkin, q / uTile + o, qx / uTile, qy / uTile);
-  vec2 dr = textureGrad(uDrift, q / 2.7 + o * 0.31, qx / 2.7, qy / 2.7).rg;
-  float tone = (a.r - 0.5) * uTone + (dr.x - 0.5) * 2.0 * uDriftTone;
+  vec2 uv = q / uTile + o, ux = qx / uTile, uy = qy / uTile;
+  vec4 a;
+  if (uMix2 > 0.0) a = skinShuffled(uv, ux, uy);       // Clay, Felt: no repeat anywhere
+  else a = textureGrad(uSkin, uv, ux, uy);             // Knit: stitches must line up
+  // gentle, large tone drift, computed on the spot (not a picture, so it can never repeat)
+  float dr = 0.65 * skNoise(q / 1.7 + o * 3.1) + 0.35 * skNoise(q / 0.6 + o.yx * 5.3);
+  float tone = (a.r - 0.5) * uTone + (dr - 0.5) * 2.0 * uDriftTone;
   float h = a.g;
-  if (uMix2 > 0.0) { // a second, turned and rescaled layer mixed in patches: no visible repeat
-    const mat2 R2 = mat2(0.8, -0.6, 0.6, 0.8);
-    float s2 = 1.0 / (uTile * 0.71);
-    vec4 b = textureGrad(uSkin, R2 * q * s2 + o.yx * 1.7, R2 * qx * s2, R2 * qy * s2);
-    h = mix(a.g, b.b, smoothstep(0.35, 0.65, dr.y) * uMix2);
+  if (uMix2 > 0.0) { // 2nd height layer (Felt: coarse fibers, Clay: other lumps) mixed in soft random patches
+    float pn = skNoise(q / 0.35 + o * 7.7 + 11.0);
+    h = mix(a.g, a.b, smoothstep(0.35, 0.65, pn) * uMix2);
   }
   if (uProb > 0.0) { // one-off marks, one dice roll per cell, each kept inside its cell
     vec2 cq = q / uCell, id = floor(cq), f = cq - id;
@@ -151,7 +175,7 @@ function addSkin(material, style, uniforms) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   normal = skinBump(-vViewPosition, normal, sk.y * uBump, faceDirection);`);
   };
-  material.customProgramCacheKey = () => 'objectsleuth-skin2-' + style;
+  material.customProgramCacheKey = () => 'objectsleuth-skin3-' + style;
 }
 
 // Smooth 3D noise (JS) for hand-made unevenness in the shapes.
@@ -255,7 +279,7 @@ function uniformsFor(style) {
     const S = STYLES[style];
     const sk = skin(style);
     skinUniforms[style] = {
-      uSkin: { value: sk.base }, uMarks: { value: sk.marks }, uDrift: { value: driftTexture() },
+      uSkin: { value: sk.base }, uMarks: { value: sk.marks },
       uTile: { value: S.tile }, uBump: { value: S.bump }, uTone: { value: S.tone }, uDriftTone: { value: S.drift },
       uVary: { value: S.vary }, uRot: { value: S.rot }, uMix2: { value: S.mix2 },
       uCell: { value: S.cell }, uProb: { value: S.prob }, uMark: { value: new THREE.Vector2(...S.mark) },

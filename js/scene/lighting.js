@@ -117,10 +117,7 @@ export class Lighting {
 
   // LIGHT LAB: flickering fireplace shadows.
   setFireShadows(on) {
-    this.fireShadows = on;
-    const f = this.fx.fireLight;
-    f.castShadow = on;
-    f.position.copy(on ? this.fireInside : this.fireOutside);
+    this.fireShadows = on; // (applied each frame in update(), together with the fire's strength)
   }
 
   set(name, instant = false) {
@@ -159,13 +156,20 @@ export class Lighting {
     this.renderer.toneMappingExposure = c.exposure;
     this.shafts.update(c.toSun, c.rays, c.sunColor, t);
 
-    const fx = this.fx;
-    const flicker = 0.85 + 0.1 * Math.sin(t * 13.1) + 0.05 * Math.sin(t * 31.7 + 1.3);
-    fx.fireLight.intensity = c.fireI * flicker * (this.fireShadows ? 1.0 : 1);
-    if (this.fireShadows) { // the flames move, so their shadows dance
-      fx.fireLight.position.copy(this.fireInside);
-      fx.fireLight.position.x += 0.04 * Math.sin(t * 7.3) + 0.02 * Math.sin(t * 17.9);
-      fx.fireLight.position.y += 0.03 * Math.sin(t * 11.1 + 0.7);
+    // Fire: its strength follows the fire's own day (study.js → fireState): full 9:00–21:00, lower
+    // flames by midnight, glowing embers by 3:00, a faint glow 6:00–9:00, re-lit at 9:00.
+    const fx = this.fx, f = fx.fireLight, fire = fx.fire || { level: 1, flicker: 1, flames: 1 };
+    f.intensity = c.fireI * fire.level * fire.flicker;
+    // a weak ember glow only reaches the inside of the firebox
+    f.distance = fire.level >= 0.2 ? 9 : Math.max(1.0, 1.0 + ((fire.level - 0.06) / 0.14) * 8);
+    // shadows: Light Lab switch on, and the fire strong enough to cast any (not the faint 6:00–9:00 glow)
+    f.castShadow = this.fireShadows && fire.level > 0.075;
+    if (this.fireShadows || fire.level < 0.2) { // inside the firebox (embers glow from in there)
+      f.position.copy(this.fireInside);
+      f.position.x += fire.flames * (0.04 * Math.sin(t * 7.3) + 0.02 * Math.sin(t * 17.9)); // flames move, shadows dance
+      f.position.y += fire.flames * 0.03 * Math.sin(t * 11.1 + 0.7) - (1 - fire.flames) * 0.25; // embers: low, on the grate
+    } else {
+      f.position.copy(this.fireOutside);
     }
     fx.lamps.forEach((l) => { l.light.intensity = l.base * c.lampI; });
     fx.bulbMats.forEach((m) => m.color.copy(BULB_OFF).lerp(BULB_ON, Math.min(1, c.lampI)));
