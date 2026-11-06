@@ -22,7 +22,7 @@ const BOOK_COLORS = [0x7a2e2e, 0x2e4a7a, 0x2f6b4a, 0x8a6a2a, 0x5a3a6b, 0x3a3a3a,
 export function buildStudy() {
   const r = rng(20261105); // fixed seed: the room looks the same every time
   const root = new THREE.Group();
-  const fx = { lamps: [], bulbMats: [], shadeMats: [], flames: [], windowMats: [], openings: [], fireLight: null, paintings: [], sockets: [],
+  const fx = { lamps: [], bulbMats: [], shadeMats: [], flames: [], windowMats: [], openings: [], fireLight: null, paintings: [], sockets: [], candleLights: [],
     room: new THREE.Box3(new THREE.Vector3(-4.0, 0, -3.0), new THREE.Vector3(4.0, 3.2, 3.0)) };
   const books = [];
 
@@ -32,12 +32,12 @@ export function buildStudy() {
   root.add(buildBookcase(r, books, -2.3, { level: 2, keep: 0.55, ornament: 'vase' }));
   root.add(buildBookcase(r, books, 2.3, { level: 3, keep: 0.5, ornament: 'hourglass' }));
   const clock = buildClock();
-  clock.group.position.set(-3.62, 0, -2.78);
+  clock.group.position.set(-3.62, 0, -2.745);                       // back clear of the wall panelling
   root.add(clock.group);
   root.add(buildRug(fx, r));
   root.add(group([buildDesk(r, fx, books)], 1.5, 0, 0.0));
   root.add(group([buildDeskChair()], 1.5, 0, 0.85, Math.PI));
-  root.add(group([buildArmchair()], -3.45, 0, 0.8, Math.PI / 2));
+  root.add(group([buildArmchair()], -3.3, 0, 0.8, Math.PI / 2));     // back clear of the window sill
   root.add(group([buildSideTable(r, books)], -3.4, 0, 2.15));
   root.add(group([buildFloorLamp(fx)], -3.55, 0, -0.6));
   const globe = buildGlobe(r);
@@ -46,9 +46,10 @@ export function buildStudy() {
   root.add(group([buildPlant(r)], 3.4, 0, 2.4));
   root.add(group([buildChest(fx)], -1.3, 0, 2.3, 0.12));
   root.add(group([buildFireTools()], 1.3, 0, -2.4));
-  root.add(group([buildLogBasket()], -1.3, 0, -2.35, 0.2));
+  root.add(group([buildLogBasket()], -1.43, 0, -2.36, 0.2));     // clear of the hearth
   bookStack(r, books, 2.75, 0, 1.45, 5);
   root.add(makeBooks(books));
+  seatIntoRoom(root);
 
   return {
     root,
@@ -77,6 +78,38 @@ export function buildStudy() {
       globe.ball.rotation.y = t * 0.12;
     },
   };
+}
+
+// Anything standing on the floor or set against a wall is extended 10 cm INTO the floor / wall,
+// where nobody can see it. Otherwise the rounded, slightly uneven edges of the art styles (Clay,
+// Felt…) leave hairline gaps that firelight and sunlight leak through. The piece keeps its original
+// edge rounding (userData.roundMin), so it looks exactly the same.
+function seatIntoRoom(root) {
+  root.updateMatrixWorld(true);
+  const SINK = 0.1, eps = 0.004, b = new THREE.Box3();
+  root.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.geometry.type !== 'BoxGeometry') return; // (not the books: one shared shape)
+    const m = o.material;
+    if (m.colorWrite === false || m.transparent || m.map) return;     // not the invisible shell, glass, rug or pictures
+    let turned = false;
+    for (let p = o; p && p !== root; p = p.parent) {
+      if (Math.abs(p.rotation.x) > 1e-6 || Math.abs(p.rotation.z) > 1e-6 || p.scale.x !== 1) return; // upright pieces only
+      if (p !== o && Math.abs(p.rotation.y) > 1e-6) turned = true;
+    }
+    if (Math.abs(o.rotation.y) > 1e-6) turned = true;
+    b.setFromObject(o);
+    let { width: w, height: h, depth: d } = o.geometry.parameters;
+    const min0 = Math.min(w, h, d);
+    let dx = 0, dy = 0, dz = 0;
+    if (b.max.x > 3.995 || b.max.z > 2.995 || b.max.y > 3.19) return;   // leave the cut-away edges and wall tops alone
+    if (Math.abs(b.min.y) < eps && b.max.y > 0.01 && b.max.y < 2.5) { h += SINK; dy = -SINK / 2; }  // on the floor (not walls)
+    if (!turned && Math.abs(b.min.z + 3.0) < eps && b.max.z > -2.9) { d += SINK; dz = -SINK / 2; }     // against the back wall (≥10 cm deep: not panelling)
+    if (!turned && Math.abs(b.min.x + 4.0) < eps && b.max.x > -3.9) { w += SINK; dx = -SINK / 2; }     // against the left wall (≥10 cm deep)
+    if (!dx && !dy && !dz) return;
+    o.geometry = new THREE.BoxGeometry(w, h, d);
+    o.position.x += dx; o.position.y += dy; o.position.z += dz;
+    o.userData.roundMin = min0;
+  });
 }
 
 // ---------------------------------------------------------------- floor & walls
@@ -115,17 +148,17 @@ function buildWalls(fx) {
   const gaps = [[-4.0, -3.2], [-1.4, -0.91], [0.91, 1.4], [3.2, 4.0]];
   for (const [x0, x1] of gaps) {
     g.add(box(x1 - x0, 0.9, 0.03, C.wainscot, (x0 + x1) / 2, 0, -2.985));
-    g.add(box(x1 - x0, 0.05, 0.07, C.rail, (x0 + x1) / 2, 0.88, -2.965));
+    g.add(box(x1 - x0 - 0.004, 0.05, 0.07, C.rail, (x0 + x1) / 2, 0.88, -2.965)); // 2 mm short at each end: no flush ends
   }
   g.add(box(0.03, 0.9, 5.97, C.wainscot, -3.985, 0, 0.015));        // left wall starts after the corner
-  g.add(box(0.07, 0.05, 5.93, C.rail, -3.965, 0.88, 0.035));
+  g.add(box(0.07, 0.05, 5.926, C.rail, -3.965, 0.88, 0.035));
   for (let x = -3.6; x < 4; x += 0.8) {
     if (covered.some(([a, b]) => x > a - 0.05 && x < b + 0.05)) continue;
     g.add(box(0.05, 0.74, 0.02, C.rail, x, 0.07, -2.96));
   }
   for (let z = -2.6; z < 3; z += 0.8) g.add(box(0.02, 0.74, 0.05, C.rail, -3.96, 0.07, z));
   // picture rail
-  g.add(box(8.0, 0.04, 0.04, C.rail, 0, 2.7, -2.98));
+  for (const [x0, x1] of [[-4.0, -0.85], [0.85, 4.0]]) g.add(box(x1 - x0, 0.04, 0.04, C.rail, (x0 + x1) / 2, 2.7, -2.98)); // stops at the chimney breast
   g.add(box(0.04, 0.04, 5.96, C.rail, -3.98, 2.7, 0.02));
 
   // window frame, glass, sill
@@ -178,7 +211,7 @@ function buildWalls(fx) {
   // curtains, rod and finials
   for (const z of [-0.22, 1.82]) {
     g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z - 0.1));
-    g.add(box(0.1, 2.1, 0.12, C.redDark, -3.92, 0.75, z));      // set back: folds, no flush faces
+    g.add(box(0.1, 2.08, 0.12, C.redDark, -3.92, 0.75, z));     // set back and a little lower: folds, no flush faces
     g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z + 0.1));
     g.add(box(0.12, 0.05, 0.36, C.brass, -3.89, 1.45, z));
   }
@@ -218,11 +251,11 @@ function buildFireplace(r, fx) {
   g.add(hearth);
   g.add(box(1.12, 0.02, 0.38, C.soot, 0, 0.05, zf + 0.21));       // stops short of the pillar fronts
   // andirons and logs
-  for (const x of [-0.3, 0.3]) g.add(box(0.04, 0.16, 0.36, C.iron, x, 0.05, zf + 0.25));
+  for (const x of [-0.3, 0.3]) g.add(box(0.04, 0.08, 0.36, C.iron, x, 0.05, zf + 0.25));   // andirons (top 0.13)
   [-0.32, 0.28].forEach((ry, i) => {
     const log = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.62, 6), C.logs);
     log.rotation.set(0, ry, Math.PI / 2);
-    log.position.set(0, 0.19 + i * 0.1, zf + 0.25);
+    log.position.set(0, 0.205 + i * 0.15, zf + 0.25);             // the first rests on the andirons, the second on the first
     g.add(log);
   });
   // glowing embers on the grate (they show most when the flames have died down at night)
@@ -258,21 +291,26 @@ function buildFireplace(r, fx) {
   fx.bounceLight = bounce;
   // mantel ornaments: candlesticks, small clock, vase
   for (const x of [-0.88, 0.88]) {
-    g.add(cyl(0.05, 0.06, 0.04, 8, C.brass, x, 1.24, zf + 0.26));
-    g.add(cyl(0.015, 0.02, 0.12, 6, C.brass, x, 1.28, zf + 0.26));
-    g.add(cyl(0.028, 0.028, 0.2, 8, C.cream, x, 1.4, zf + 0.26));
+    g.add(cyl(0.05, 0.06, 0.04, 8, C.brass, x, 1.24, zf + 0.36));
+    g.add(cyl(0.015, 0.02, 0.12, 6, C.brass, x, 1.28, zf + 0.36));
+    g.add(cyl(0.028, 0.028, 0.2, 8, C.cream, x, 1.4, zf + 0.36));
     const fl = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 5), fb);
-    fl.position.set(x, 1.64, zf + 0.26);
+    fl.position.set(x, 1.64, zf + 0.36);
     fl.userData = { base: 1, phase: r() * 10 };
     g.add(fl);
     fx.flames.push(fl);
+    // a small, warm candle light (no shadows): a faint glow on the chimney breast and mantel in the dark
+    const cl = new THREE.PointLight(0xffc27a, 0, 1.8, 2);
+    cl.position.set(x, 1.67, zf + 0.36);
+    g.add(cl);
+    fx.candleLights.push(cl);
   }
-  g.add(box(0.22, 0.2, 0.12, C.woodDark, 0.4, 1.24, zf + 0.22));
+  g.add(box(0.22, 0.2, 0.12, C.woodDark, 0.4, 1.24, zf + 0.33));   // (all mantel items stand in front of the chimney breast)
   const face = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.01, 12), C.cream, false);
   face.rotation.x = Math.PI / 2;
-  face.position.set(0.4, 1.35, zf + 0.285);
+  face.position.set(0.4, 1.35, zf + 0.395);
   g.add(face);
-  g.add(lathe([[0, 0], [0.05, 0], [0.07, 0.05], [0.045, 0.15], [0.03, 0.2], [0.045, 0.24]], C.blueGlaze, -0.42, 1.24, zf + 0.24));
+  g.add(lathe([[0, 0], [0.05, 0], [0.07, 0.05], [0.045, 0.15], [0.03, 0.2], [0.045, 0.24]], C.blueGlaze, -0.42, 1.24, zf + 0.36));
   // painting above the mantel
   g.add(box(1.12, 0.8, 0.05, C.brass, 0, 1.5, zf + 0.275));     // frame clear of the mantel clock (no flicker)
   const land = painting(768, 516, drawLandscape, [[0.05, 0.95, 0.74, 0.96]]); // the foreground hills
@@ -803,7 +841,8 @@ function buildLogBasket() {
   for (let i = 0; i < 3; i++) {
     const log = mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.55, 6), C.logs);
     log.rotation.z = Math.PI / 2;
-    log.position.set(0, 0.3 + (i === 2 ? 0.08 : 0), -0.07 + (i % 2) * 0.13 + (i === 2 ? -0.06 : 0));
+    // two side by side, the third resting in the groove on top (no log passes through another)
+    log.position.set(0, i === 2 ? 0.401 : 0.3, i === 2 ? -0.005 : -0.07 + i * 0.13);
     g.add(log);
   }
   return g;

@@ -188,6 +188,8 @@ export class Lighting {
     b.castShadow = bounceOn;
     b.visible = bounceOn;
     fx.lamps.forEach((l) => { l.light.intensity = l.base * c.lampI; });
+    // candles: a faint, flickering glow that only shows as the room gets dark
+    (fx.candleLights || []).forEach((l, i) => { l.intensity = 0.45 * c.lampI * (0.85 + 0.1 * Math.sin(t * 11 + i * 2) + 0.05 * Math.sin(t * 27 + i)); });
     fx.bulbMats.forEach((m) => m.color.copy(BULB_OFF).lerp(BULB_ON, Math.min(1, c.lampI)));
     fx.shadeMats.forEach((m) => { m.emissiveIntensity = 0.55 * c.lampI; });
     fx.windowMats.forEach((m) => { m.emissive.copy(c.windowColor); m.emissiveIntensity = c.windowI; });

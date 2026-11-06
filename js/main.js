@@ -14,7 +14,7 @@ import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
 import { installGradedShadows } from './scene/softshadows.js';
 import { Targets, LEVELS } from './game/targets.js';
 
-const BUILD = 'Draft 1 · M1.7 Target Objects v2';
+const BUILD = 'Draft 1 · M1.7 Target Objects v2 (b)';
 const $ = (id) => document.getElementById(id);
 
 // ---------- renderer & scene ----------

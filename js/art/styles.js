@@ -373,7 +373,7 @@ export class StyleSampler {
     let g;
     if (orig.type === 'BoxGeometry') {
       const { width: w, height: h, depth: d } = orig.parameters;
-      const r = Math.min(S.cap, Math.min(w, h, d) * S.round);
+      const r = Math.min(S.cap, (o.userData.roundMin ?? Math.min(w, h, d)) * S.round); // (roundMin: size before it was sunk into floor/wall)
       g = r < 0.002 ? orig.clone() : new RoundedBoxGeometry(w, h, d, Math.max(w, h, d) > 0.5 ? 2 : 1, r);
     } else {
       g = orig.clone();
@@ -382,7 +382,7 @@ export class StyleSampler {
     const pos = g.attributes.position, v = new THREE.Vector3();
     g.computeBoundingBox();
     const size = g.boundingBox.getSize(new THREE.Vector3());
-    const amp = Math.min(S.lumpy, Math.max(0.0005, Math.min(size.x, size.y, size.z) * 0.12));
+    const amp = Math.min(S.lumpy, Math.max(0.0005, (o.userData.roundMin ?? Math.min(size.x, size.y, size.z)) * 0.12));
     if (S.lumpy) {
       // Unevenness follows one shared field in the room, so touching pieces stay joined.
       for (let i = 0; i < pos.count; i++) {

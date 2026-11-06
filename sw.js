@@ -1,6 +1,6 @@
 // ObjectSleuth service worker: stores every app file on the device so the game runs 100% offline.
 // IMPORTANT: change VERSION whenever any app file changes. That makes devices download the new files.
-const VERSION = 'draft1-m1.7-001';
+const VERSION = 'draft1-m1.7-002';
 const CACHE = 'objectsleuth-' + VERSION;
 
 const FILES = [
