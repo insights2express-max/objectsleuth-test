@@ -4,3 +4,7 @@ Verified npm integrity: sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kv
 Files: build/three.module.js, build/three.core.js, LICENSE (MIT)
 9edde002b066a9a05676a6127f67735b62baf399bdea529f2f7e31657da769e6 *PWA BUILD/app/vendor/three/three.core.js
 9052042d676cb0fdc1ddfefe193053f34b7ac0513a616fdac4535d49987812ea *PWA BUILD/app/vendor/three/three.module.js
+
+Add-ons (same verified 0.186.1 tarball): RoundedBoxGeometry, EffectComposer, RenderPass, ShaderPass, OutputPass, Pass, MaskPass,
+CopyShader, OutputShader, Horizontal/VerticalTiltShiftShader; + (M1.4, hash re-checked 2026-11-06) GTAOPass, GTAOShader,
+PoissonDenoiseShader, SimplexNoise.

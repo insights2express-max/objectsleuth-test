@@ -124,7 +124,7 @@ function buildWalls(fx) {
   g.add(box(0.22, 1.7, 0.07, fm, -4.1, 0.9, 1.565));
   g.add(box(0.05, 1.7, 0.04, fm, -4.1, 0.9, 0.8));
   g.add(box(0.05, 0.04, 1.6, fm, -4.1, 1.72, 0.8));
-  g.add(box(0.32, 0.05, 1.8, fm, -3.95, 0.88, 0.8));
+  g.add(box(0.32, 0.07, 1.8, fm, -3.95, 0.875, 0.8));   // sill top 0.945, above the chair rail (0.93)
   const glassMat = new THREE.MeshStandardMaterial({
     color: 0xcfe6f2, emissive: 0xdff3ff, emissiveIntensity: 0.8,
     transparent: true, opacity: 0.35, roughness: 0.1, flatShading: true,
@@ -140,7 +140,7 @@ function buildWalls(fx) {
   g.add(box(0.07, 1.7, 0.22, fm, 3.865, 0.9, -3.1));
   g.add(box(0.04, 1.7, 0.05, fm, 3.6, 0.9, -3.1));
   g.add(box(0.6, 0.04, 0.05, fm, 3.6, 1.72, -3.1));
-  g.add(box(0.74, 0.05, 0.3, fm, 3.6, 0.88, -2.95));
+  g.add(box(0.74, 0.07, 0.3, fm, 3.6, 0.875, -2.95));
   const glass2 = mesh(new THREE.BoxGeometry(0.6, 1.7, 0.01), glassMat.clone(), false);
   glass2.position.set(3.6, 1.75, -3.12);
   g.add(glass2);
@@ -184,7 +184,7 @@ function buildWalls(fx) {
   g.add(box(0.05, 0.66, 0.86, C.brass, -3.955, 1.4, -1.6));
   const pic = mesh(new THREE.PlaneGeometry(0.74, 0.54), mat(0xffffff, { map: stillLifeTexture(), rough: 0.9 }), false);
   pic.rotation.y = Math.PI / 2;
-  pic.position.set(-3.928, 1.73, -1.6);
+  pic.position.set(-3.924, 1.73, -1.6);
   g.add(pic);
   return g;
 }
@@ -198,9 +198,11 @@ function buildFireplace(r, fx) {
   g.add(box(0.38, 0.92, 0.42, C.stone, 0.72, 0, zf + 0.21));
   g.add(box(1.82, 0.24, 0.42, C.stone, 0, 0.92, zf + 0.21));
   g.add(box(2.1, 0.08, 0.52, C.woodDark, 0, 1.16, zf + 0.26)); // mantel shelf (top at 1.24)
-  g.add(box(1.06, 0.92, 0.04, C.soot, 0, 0, zf + 0.03));
-  g.add(box(2.2, 0.05, 0.62, C.stoneDark, 0, 0, zf + 0.58));    // hearth
-  g.add(box(1.06, 0.02, 0.4, C.soot, 0, 0.05, zf + 0.22));
+  g.add(box(1.12, 0.92, 0.04, C.soot, 0, 0, zf + 0.03));   // wider than the opening: edges hidden in the pillars (no flicker)
+  const hearth = box(2.2, 0.05, 0.62, C.stoneDark, 0, 0, zf + 0.58); // hearth
+  hearth.userData.grain = 'z';                                      // knit runs across it, unlike the floor boards
+  g.add(hearth);
+  g.add(box(1.12, 0.02, 0.4, C.soot, 0, 0.05, zf + 0.22));
   // andirons and logs
   for (const x of [-0.3, 0.3]) g.add(box(0.04, 0.16, 0.36, C.iron, x, 0.05, zf + 0.25));
   [-0.32, 0.28].forEach((ry, i) => {
@@ -233,16 +235,16 @@ function buildFireplace(r, fx) {
     g.add(fl);
     fx.flames.push(fl);
   }
-  g.add(box(0.28, 0.22, 0.12, C.woodDark, 0.42, 1.24, zf + 0.22));
+  g.add(box(0.22, 0.2, 0.12, C.woodDark, 0.4, 1.24, zf + 0.22));
   const face = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.01, 12), C.cream, false);
   face.rotation.x = Math.PI / 2;
-  face.position.set(0.42, 1.36, zf + 0.285);
+  face.position.set(0.4, 1.35, zf + 0.285);
   g.add(face);
   g.add(lathe([[0, 0], [0.05, 0], [0.07, 0.05], [0.045, 0.15], [0.03, 0.2], [0.045, 0.24]], C.blueGlaze, -0.42, 1.24, zf + 0.24));
   // painting above the mantel
-  g.add(box(1.12, 0.8, 0.05, C.brass, 0, 1.36, zf + 0.275));
+  g.add(box(1.12, 0.8, 0.05, C.brass, 0, 1.5, zf + 0.275));     // frame clear of the mantel clock (no flicker)
   const paint = mesh(new THREE.PlaneGeometry(0.98, 0.66), mat(0xffffff, { map: landscapeTexture(), rough: 0.9 }), false);
-  paint.position.set(0, 1.76, zf + 0.302);
+  paint.position.set(0, 1.9, zf + 0.306);
   g.add(paint);
   return g;
 }
@@ -256,7 +258,7 @@ function buildBookcase(r, books, cx, opt) {
   g.add(box(W, t, D, C.wood, cx, H - t, cz));
   g.add(box(W + 0.12, 0.08, D + 0.06, C.woodDark, cx, H, cz + 0.01));
   g.add(box(W, 0.12, D, C.woodDark, cx, 0, cz));
-  g.add(box(W, H, 0.02, C.woodDark, cx, 0, z0 + 0.01));
+  g.add(box(W, H, 0.02, C.woodDark, cx, 0, z0 + 0.055));        // in front of the wall panelling
   const levels = [0.12, 0.62, 1.12, 1.62, 2.12];
   levels.slice(1).forEach((y) => g.add(box(W - 2 * t, 0.04, D - 0.02, C.wood, cx, y - 0.04, cz)));
   const xa = cx - W / 2 + t + 0.02, xb = cx + W / 2 - t - 0.02;
@@ -394,8 +396,10 @@ function buildRug() {
     for (let x = 100; x < w - 80; x += 52) for (const y of [92, h - 92]) diamond(x, y, 12, 12, '#c48a4a');
     for (const x of [92, w - 92]) for (let y = 140; y < h - 120; y += 52) diamond(x, y, 12, 12, '#c48a4a');
   });
-  const rug = mesh(new THREE.BoxGeometry(3.6, 0.012, 2.8), mat(0xffffff, { map: tex, rough: 1 }), false);
-  rug.position.set(1.1, 0.006, 0.35);
+  // a real layer on the floor: 3 cm thick, casts its own small shadow at the edges
+  const rug = mesh(new THREE.BoxGeometry(3.6, 0.03, 2.8), mat(0xffffff, { map: tex, rough: 1 }), true);
+  rug.userData.grain = 'z';
+  rug.position.set(1.1, 0.015, 0.35);
   return rug;
 }
 

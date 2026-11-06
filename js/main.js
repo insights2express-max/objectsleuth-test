@@ -10,20 +10,24 @@ import { ShaderPass } from '../vendor/three/addons/postprocessing/ShaderPass.js'
 import { OutputPass } from '../vendor/three/addons/postprocessing/OutputPass.js';
 import { HorizontalTiltShiftShader } from '../vendor/three/addons/shaders/HorizontalTiltShiftShader.js';
 import { VerticalTiltShiftShader } from '../vendor/three/addons/shaders/VerticalTiltShiftShader.js';
+import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
+import { installGradedShadows } from './scene/softshadows.js';
 
-const BUILD = 'Draft 1 · M1.3 skins';
+const BUILD = 'Draft 1 · M1.4 skins v2 + Light Lab';
 const $ = (id) => document.getElementById(id);
 
 // ---------- renderer & scene ----------
+const graded = installGradedShadows(); // LIGHT LAB: must run before anything is drawn
 const canvas = $('stage');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.type = graded ? THREE.BasicShadowMap : THREE.PCFShadowMap; // graded filter works on the basic map
 renderer.toneMapping = THREE.NeutralToneMapping;
 
 const scene = new THREE.Scene();
-const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+// near/far hug the room (camera is 40 m away): finer depth steps, so touching surfaces don't flicker on tablets
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 25, 60);
 const study = buildStudy();
 scene.add(study.root);
 const lighting = new Lighting(scene, renderer, study.fx, study.compassTurn);
@@ -41,18 +45,41 @@ const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, .
 // extra color, so the room looks like a tiny model photographed up close.
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
 composer.addPass(new RenderPass(scene, camera));
+
+// LIGHT LAB: contact shading ("ambient occlusion"): darkens corners, gaps and where objects meet.
+// Runs at half resolution on high-density screens (iPad), which looks the same and costs a quarter.
+const gtao = new GTAOPass(scene, camera, 1, 1, undefined,
+  { radius: 0.35, distanceExponent: 1.5, thickness: 0.5, scale: 1.25, samples: 16, screenSpaceRadius: false });
+gtao.blendIntensity = 1.0;
+const gtaoSetSize = gtao.setSize.bind(gtao);
+gtao.setSize = (w, h) => { const k = renderer.getPixelRatio() > 1.25 ? 0.5 : 1; gtaoSetSize(Math.ceil(w * k), Math.ceil(h * k)); };
+// Things that must not shade: see-through glass, light shafts, and the invisible shadow-only shell.
+const gtaoHide = gtao._overrideVisibility.bind(gtao);
+gtao._overrideVisibility = function () {
+  gtaoHide();
+  this.scene.traverse((o) => {
+    if (o.isMesh && o.visible && (o.material.transparent || o.material.colorWrite === false)) {
+      o.visible = false;
+      this._visibilityCache.push(o);
+    }
+  });
+};
+composer.addPass(gtao);
 const tiltH = new ShaderPass(HorizontalTiltShiftShader), tiltV = new ShaderPass(VerticalTiltShiftShader);
 tiltH.uniforms.r.value = tiltV.uniforms.r.value = 0.5;
 composer.addPass(tiltH);
 composer.addPass(tiltV);
-composer.addPass(new ShaderPass({
+const satPass = new ShaderPass({
   uniforms: { tDiffuse: { value: null } },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
     void main() { vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
       gl_FragColor = vec4(mix(vec3(l), c.rgb, 1.3), c.a); }`,
-}));
+});
+composer.addPass(satPass);
 composer.addPass(new OutputPass());
+const miniPasses = [tiltH, tiltV, satPass];
+miniPasses.forEach((p) => { p.enabled = false; });
 let miniature = false;
 
 function resize() {
@@ -91,6 +118,7 @@ function chooseStyle(name) {
 }
 function setMiniature(on) {
   miniature = on;
+  miniPasses.forEach((p) => { p.enabled = on; });
   miniBtn.classList.toggle('on', on);
   miniBtn.setAttribute('aria-pressed', String(on));
   try { localStorage.setItem('objectsleuth.mini', on ? '1' : '0'); } catch (e) { /* ignore */ }
@@ -101,6 +129,26 @@ try {
   chooseStyle(localStorage.getItem('objectsleuth.style') || 'lowpoly');
   setMiniature(localStorage.getItem('objectsleuth.mini') === '1');
 } catch (e) { chooseStyle('lowpoly'); }
+
+// ---------- LIGHT LAB (test feature): realism switches, each can be turned on/off to compare ----------
+const LAB_STORE = 'objectsleuth.lab';
+const lab = { ao: true, soft: true, fire: true }; // all on by default
+try { Object.assign(lab, JSON.parse(localStorage.getItem(LAB_STORE) || '{}')); } catch (e) { /* ignore */ }
+const labButtons = { ao: $('lab-ao'), soft: $('lab-soft'), fire: $('lab-fire') };
+function setLab(key, on) {
+  lab[key] = on;
+  if (key === 'ao') gtao.enabled = on;
+  if (key === 'soft') lighting.setSoftShadows(on && graded);
+  if (key === 'fire') lighting.setFireShadows(on);
+  labButtons[key].classList.toggle('on', on);
+  labButtons[key].setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem(LAB_STORE, JSON.stringify(lab)); } catch (e) { /* ignore */ }
+}
+Object.keys(labButtons).forEach((k) => {
+  setLab(k, !!lab[k]);
+  labButtons[k].addEventListener('click', () => setLab(k, !lab[k]));
+});
+if (!graded) labButtons.soft.disabled = true;
 
 // ---------- TEST CLOCK (test-only u.f.n.) ----------
 const tcRange = $('tc-range'), tcTime = $('tc-time'), tcPlay = $('tc-play'), tcLive = $('tc-live');
@@ -140,6 +188,7 @@ if (params.get('time')) { choosePreset('auto', true); lighting.testHours = Numbe
 if (params.get('cloud')) lighting.clouds.fixed = Number(params.get('cloud'));
 if (params.get('style')) chooseStyle(params.get('style'));
 if (params.get('mini')) setMiniature(params.get('mini') === '1');
+for (const k of ['ao', 'soft', 'fire']) if (params.get(k)) setLab(k, params.get(k) === '1');
 if (params.get('zoom')) {
   const [x, y, z] = (params.get('focus') || '0,1.2,0').split(',').map(Number);
   controls.focusOn(new THREE.Vector3(x, y, z), Number(params.get('zoom')));
@@ -157,7 +206,7 @@ renderer.setAnimationLoop(() => {
   controls.update(dt);
   lighting.update(dt, t);
   study.animate(t, lighting.hours());
-  if (miniature) composer.render(dt); else renderer.render(scene, camera);
+  if (miniature || lab.ao) composer.render(dt); else renderer.render(scene, camera);
   frames++; acc += dt;
   if (frames % 10 === 0) showTestClock();
   if (acc >= 1) { fpsEl.textContent = Math.round(frames / acc) + ' fps'; frames = 0; acc = 0; }

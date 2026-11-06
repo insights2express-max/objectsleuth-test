@@ -89,7 +89,38 @@ export class Lighting {
     this.timeLapse = 0;      // test clock: hours per second (0 = off)
     this.cur = blank();
     this.tgt = blank();
+    // LIGHT LAB: the fire can cast shadows. Then its light sits INSIDE the firebox (logs, andirons
+    // and the opening shape the light); without shadows it sits in front, so it can't leak through walls.
+    const f = fx.fireLight;
+    this.fireOutside = f.position.clone();
+    this.fireInside = new THREE.Vector3(0, 0.5, -2.68);
+    f.shadow.mapSize.set(1024, 1024);
+    f.shadow.camera.near = 0.05;
+    f.shadow.bias = -0.003;
+    f.shadow.radius = 2.5;
+    this.softShadows = false;
+    this.fireShadows = false;
     this.set('auto', true);
+  }
+
+  // LIGHT LAB: graded sun shadows (crisp at contact, softer the farther they fall) + more detail.
+  setSoftShadows(on) {
+    this.softShadows = on;
+    const s = this.sun.shadow, size = on ? 4096 : 2048;
+    if (s.mapSize.x !== size) {
+      s.mapSize.set(size, size);
+      if (s.map) { s.map.dispose(); s.map = null; }
+    }
+    // penumbra grows 1.5 cm per metre the shadow falls (real sun ≈ 1 cm; in shadow-map units, see softshadows.js)
+    s.radius = on ? 0.015 * (s.camera.far - s.camera.near) / (s.camera.right - s.camera.left) : 0;
+  }
+
+  // LIGHT LAB: flickering fireplace shadows.
+  setFireShadows(on) {
+    this.fireShadows = on;
+    const f = this.fx.fireLight;
+    f.castShadow = on;
+    f.position.copy(on ? this.fireInside : this.fireOutside);
   }
 
   set(name, instant = false) {
@@ -130,7 +161,12 @@ export class Lighting {
 
     const fx = this.fx;
     const flicker = 0.85 + 0.1 * Math.sin(t * 13.1) + 0.05 * Math.sin(t * 31.7 + 1.3);
-    fx.fireLight.intensity = c.fireI * flicker;
+    fx.fireLight.intensity = c.fireI * flicker * (this.fireShadows ? 1.0 : 1);
+    if (this.fireShadows) { // the flames move, so their shadows dance
+      fx.fireLight.position.copy(this.fireInside);
+      fx.fireLight.position.x += 0.04 * Math.sin(t * 7.3) + 0.02 * Math.sin(t * 17.9);
+      fx.fireLight.position.y += 0.03 * Math.sin(t * 11.1 + 0.7);
+    }
     fx.lamps.forEach((l) => { l.light.intensity = l.base * c.lampI; });
     fx.bulbMats.forEach((m) => m.color.copy(BULB_OFF).lerp(BULB_ON, Math.min(1, c.lampI)));
     fx.shadeMats.forEach((m) => { m.emissiveIntensity = 0.55 * c.lampI; });

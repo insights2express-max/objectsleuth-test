@@ -1,6 +1,6 @@
 // ObjectSleuth service worker: stores every app file on the device so the game runs 100% offline.
 // IMPORTANT: change VERSION whenever any app file changes. That makes devices download the new files.
-const VERSION = 'draft1-m1.3-002';
+const VERSION = 'draft1-m1.4-001';
 const CACHE = 'objectsleuth-' + VERSION;
 
 const FILES = [
@@ -17,16 +17,21 @@ const FILES = [
   './js/scene/study.js',
   './js/scene/lighting.js',
   './js/scene/sun.js',
+  './js/scene/softshadows.js',
   './vendor/three/three.module.js',
   './vendor/three/three.core.js',
   './vendor/three/addons/geometries/RoundedBoxGeometry.js',
+  './vendor/three/addons/math/SimplexNoise.js',
   './vendor/three/addons/postprocessing/EffectComposer.js',
+  './vendor/three/addons/postprocessing/GTAOPass.js',
   './vendor/three/addons/postprocessing/MaskPass.js',
   './vendor/three/addons/postprocessing/OutputPass.js',
   './vendor/three/addons/postprocessing/Pass.js',
   './vendor/three/addons/postprocessing/RenderPass.js',
   './vendor/three/addons/postprocessing/ShaderPass.js',
   './vendor/three/addons/shaders/CopyShader.js',
+  './vendor/three/addons/shaders/GTAOShader.js',
+  './vendor/three/addons/shaders/PoissonDenoiseShader.js',
   './vendor/three/addons/shaders/HorizontalTiltShiftShader.js',
   './vendor/three/addons/shaders/OutputShader.js',
   './vendor/three/addons/shaders/VerticalTiltShiftShader.js',

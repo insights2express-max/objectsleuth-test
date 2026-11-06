@@ -3,18 +3,24 @@
 // and draws a fine surface pattern in code, so it stays sharp at any zoom.
 import * as THREE from '../../vendor/three/three.module.js';
 import { RoundedBoxGeometry } from '../../vendor/three/addons/geometries/RoundedBoxGeometry.js';
-import { skin } from './skins.js';
+import { skin, driftTexture } from './skins.js';
 
-// skin styles: the surface is a baked "skin" (skins.js) wrapped onto each object, so it moves
-// with the object, has relief that catches the light, and is cheap to draw.
-//   tile = metres per skin repeat · bump = relief depth (m) · tone = strength of tonal variation
-//   vary = per-object shade variation · rot = how far each object's skin is turned (1 = any angle)
+// Skin styles (v2, M1.4): each object's surface = a fine baked "base" + one-off marks scattered
+// one at a time by dice rolls (never repeating) + a gentle large-scale tone drift.
+//   tile = metres per base repeat · bump = relief depth (m) · tone = strength of fine tone
+//   drift = strength of the large, gentle tone drift · vary = per-object shade variation
+//   rot = how far each object's skin is turned (1 = any angle) · mix2 = blend in a 2nd base layer
+//   cell = metres per dice-roll cell · prob = chance a cell gets a mark · mark = mark size (share of cell)
+//   grain = knit: stitches run along each piece's length (wood grain), not a random angle
 //   lumpy = hand-made unevenness (m, max) pushed into the shapes themselves
 export const STYLES = {
   lowpoly: { label: 'Low-poly' },
-  clay: { label: 'Clay', skin: true, round: 0.45, cap: 0.09, tile: 0.6, bump: 0.006, tone: 0.75, vary: 0.16, rot: 1, lumpy: 0.012 },
-  felt: { label: 'Felt', skin: true, round: 0.45, cap: 0.1, tile: 0.25, bump: 0.003, tone: 1.0, vary: 0.08, rot: 1, lumpy: 0.006 },
-  knit: { label: 'Knitted yarn', skin: true, round: 0.4, cap: 0.08, tile: 0.36, bump: 0.006, tone: 1.6, vary: 0.08, rot: 0.04, lumpy: 0.004 },
+  clay: { label: 'Clay', skin: true, round: 0.45, cap: 0.09, tile: 0.45, bump: 0.006, tone: 0.35, drift: 0.22, vary: 0.1, rot: 1, mix2: 1,
+    cell: 0.1, prob: 0.5, mark: [0.3, 0.85], lumpy: 0.012 },
+  felt: { label: 'Felt', skin: true, round: 0.45, cap: 0.1, tile: 0.2, bump: 0.003, tone: 0.8, drift: 0.14, vary: 0.08, rot: 1, mix2: 1,
+    cell: 0.07, prob: 0.3, mark: [0.4, 0.95], lumpy: 0.006 },
+  knit: { label: 'Knitted yarn', skin: true, round: 0.4, cap: 0.08, tile: 0.36, bump: 0.006, tone: 1.6, drift: 0.12, vary: 0.08, rot: 0.04, mix2: 0,
+    cell: 1, prob: 0, mark: [1, 1], grain: true, lumpy: 0.004 },
   // PARKED (OS-4: 5.1): hidden from the list; code kept for later
   paper: { label: 'Paper-craft', kind: 5, parked: true },
   brick: { label: 'Brick-built', kind: 4, parked: true },
@@ -23,26 +29,102 @@ export const STYLES = {
 // ---------- skins: shader code added to the normal three.js materials ----------
 const SKIN_VERT = `
 attribute float aSeed;
+#ifdef SKIN_GRAIN
+attribute vec3 aGrain; attribute vec3 aGrain2;
+varying vec3 vGrain; varying vec3 vGrain2;
+#endif
 varying vec3 vLP; varying vec3 vLN; varying float vSeed;`;
 const SKIN_VERT_MAIN = `
 #ifdef USE_INSTANCING
   vLP = mat3(instanceMatrix) * transformed;
   vLN = mat3(instanceMatrix) * objectNormal;
   vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  #ifdef SKIN_GRAIN
+  { // grain = the block's longest side, 2nd = its middle side
+    vec3 A = instanceMatrix[0].xyz, B = instanceMatrix[1].xyz, C = instanceMatrix[2].xyz, t;
+    if (dot(B, B) > dot(A, A)) { t = A; A = B; B = t; }
+    if (dot(C, C) > dot(A, A)) { t = A; A = C; C = t; }
+    if (dot(C, C) > dot(B, B)) { t = B; B = C; C = t; }
+    vGrain = normalize(A); vGrain2 = normalize(B);
+  }
+  #endif
 #else
   vLP = transformed; vLN = objectNormal; vSeed = aSeed;
+  #ifdef SKIN_GRAIN
+  vGrain = aGrain; vGrain2 = aGrain2;
+  #endif
 #endif`;
 const SKIN_FRAG = `
-uniform sampler2D uSkin; uniform float uTile; uniform float uBump; uniform float uTone; uniform float uVary; uniform float uRot;
+uniform sampler2D uSkin; uniform sampler2D uMarks; uniform sampler2D uDrift;
+uniform float uTile; uniform float uBump; uniform float uTone; uniform float uDriftTone; uniform float uVary; uniform float uRot;
+uniform float uMix2; uniform float uCell; uniform float uProb; uniform vec2 uMark;
 varying vec3 vLP; varying vec3 vLN; varying float vSeed;
-vec4 skinSample(vec3 p, vec3 n) {
+#ifdef SKIN_GRAIN
+varying vec3 vGrain; varying vec3 vGrain2;
+#endif
+float skHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+// The skin's "up" direction inside one projection plane (axes e1, e2).
+vec2 skinDir(vec3 e1, vec3 e2) {
+  float a = (vSeed - 0.5) * 6.2831 * uRot;
+#ifdef SKIN_GRAIN
+  vec2 g = vec2(dot(vGrain, e1), dot(vGrain, e2));
+  if (dot(g, g) < 0.25) g = vec2(dot(vGrain2, e1), dot(vGrain2, e2));
+  g = normalize(g + vec2(1e-5));
+  float c = cos(a), s = sin(a);
+  return vec2(c * g.x - s * g.y, s * g.x + c * g.y);
+#else
+  return vec2(sin(a), cos(a));
+#endif
+}
+// One projection plane: returns (tone, height). All reads use explicit gradients, so the
+// scattered marks have no seams and nothing depends on neighbouring pixels.
+vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o) {
+  vec2 d = skinDir(e1, e2), dp = vec2(d.y, -d.x);
+  vec2 p2 = vec2(dot(vLP, e1), dot(vLP, e2));
+  vec2 gx2 = vec2(dot(dpx, e1), dot(dpx, e2)), gy2 = vec2(dot(dpy, e1), dot(dpy, e2));
+  vec2 q = vec2(dot(p2, dp), dot(p2, d)), qx = vec2(dot(gx2, dp), dot(gx2, d)), qy = vec2(dot(gy2, dp), dot(gy2, d));
+  vec4 a = textureGrad(uSkin, q / uTile + o, qx / uTile, qy / uTile);
+  vec2 dr = textureGrad(uDrift, q / 2.7 + o * 0.31, qx / 2.7, qy / 2.7).rg;
+  float tone = (a.r - 0.5) * uTone + (dr.x - 0.5) * 2.0 * uDriftTone;
+  float h = a.g;
+  if (uMix2 > 0.0) { // a second, turned and rescaled layer mixed in patches: no visible repeat
+    const mat2 R2 = mat2(0.8, -0.6, 0.6, 0.8);
+    float s2 = 1.0 / (uTile * 0.71);
+    vec4 b = textureGrad(uSkin, R2 * q * s2 + o.yx * 1.7, R2 * qx * s2, R2 * qy * s2);
+    h = mix(a.g, b.b, smoothstep(0.35, 0.65, dr.y) * uMix2);
+  }
+  if (uProb > 0.0) { // one-off marks, one dice roll per cell, each kept inside its cell
+    vec2 cq = q / uCell, id = floor(cq), f = cq - id;
+    vec2 cx = qx / uCell, cy = qy / uCell;
+    float sd = vSeed * 37.0;
+    if (skHash(id + sd) < uProb) {
+      float r2 = skHash(id * 1.31 + 5.7 + sd), r3 = skHash(id * 0.71 + 2.3 + sd), r4 = skHash(id * 1.73 + 9.1 + sd);
+      vec2 r56 = vec2(skHash(id * 2.1 + 1.9 + sd), skHash(id * 0.37 + 4.4 + sd));
+      float sc = mix(uMark.x, uMark.y, r4);
+      vec2 c = 0.5 + (r56 - 0.5) * (1.0 - sc);
+      float an = r3 * 6.2831, ca = cos(an), sa = sin(an);
+      mat2 M = mat2(ca, -sa, sa, ca);
+      vec2 l = M * (f - c) / sc + 0.5;
+      if (l.x > 0.0 && l.y > 0.0 && l.x < 1.0 && l.y < 1.0) {
+        float slot = floor(r2 * 16.0);
+        vec2 uvm = (vec2(mod(slot, 4.0), floor(slot / 4.0)) + l) * 0.25;
+        vec4 m = textureGrad(uMarks, uvm, M * cx / (sc * 4.0), M * cy / (sc * 4.0));
+        tone += (m.r - 0.5) * 2.0;
+        h += (m.g - 0.5) * 1.6;
+      }
+    }
+  }
+  return vec2(tone, h);
+}
+vec2 skinSample(vec3 n) {
   vec3 w = pow(abs(n), vec3(6.0)); w /= (w.x + w.y + w.z);
-  float a = (vSeed - 0.5) * 6.2831 * uRot; float c = cos(a), s = sin(a);
-  mat2 R = mat2(c, -s, s, c);
+  vec3 dpx = dFdx(vLP), dpy = dFdy(vLP);
   vec2 o = vec2(vSeed * 17.3, fract(vSeed * 91.7) * 5.1);
-  return w.x * texture2D(uSkin, R * (p.zy / uTile) + o)
-       + w.y * texture2D(uSkin, R * (p.xz / uTile) + o.yx)
-       + w.z * texture2D(uSkin, R * (p.xy / uTile) + o * 1.3);
+  vec2 s = vec2(0.0);
+  if (w.x > 0.01) s += w.x * skinPlane(vec3(0, 0, 1), vec3(0, 1, 0), dpx, dpy, o);
+  if (w.y > 0.01) s += w.y * skinPlane(vec3(1, 0, 0), vec3(0, 0, 1), dpx, dpy, o.yx);
+  if (w.z > 0.01) s += w.z * skinPlane(vec3(1, 0, 0), vec3(0, 1, 0), dpx, dpy, o * 1.3);
+  return s;
 }
 vec3 skinBump(vec3 sp, vec3 sn, float h, float faceDir) {
   vec3 sx = dFdx(sp), sy = dFdy(sp);
@@ -53,6 +135,7 @@ vec3 skinBump(vec3 sp, vec3 sn, float h, float faceDir) {
 }`;
 
 function addSkin(material, style, uniforms) {
+  if (STYLES[style].grain) material.defines = { ...(material.defines || {}), SKIN_GRAIN: '' };
   material.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
@@ -61,14 +144,14 @@ function addSkin(material, style, uniforms) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + SKIN_FRAG)
       .replace('#include <color_fragment>', `#include <color_fragment>
-  vec4 sk = skinSample(vLP, normalize(vLN));
+  vec2 sk = skinSample(normalize(vLN));
   vec3 hs = fract(vec3(vSeed * 13.7, vSeed * 71.3, vSeed * 29.1));
   vec3 tintv = vec3(1.0 + (hs.x - 0.5) * uVary) + (hs.yzx - 0.5) * uVary * 0.4;
-  diffuseColor.rgb *= tintv * (1.0 + (sk.r - 0.5) * uTone);`)
+  diffuseColor.rgb *= tintv * max(0.2, 1.0 + sk.x);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-  normal = skinBump(-vViewPosition, normal, sk.g * uBump, faceDirection);`);
+  normal = skinBump(-vViewPosition, normal, sk.y * uBump, faceDirection);`);
   };
-  material.customProgramCacheKey = () => 'objectsleuth-skin-' + style;
+  material.customProgramCacheKey = () => 'objectsleuth-skin2-' + style;
 }
 
 // Smooth 3D noise (JS) for hand-made unevenness in the shapes.
@@ -170,9 +253,12 @@ const skinUniforms = {};
 function uniformsFor(style) {
   if (!skinUniforms[style]) {
     const S = STYLES[style];
+    const sk = skin(style);
     skinUniforms[style] = {
-      uSkin: { value: skin(style) }, uTile: { value: S.tile }, uBump: { value: S.bump },
-      uTone: { value: S.tone }, uVary: { value: S.vary }, uRot: { value: S.rot },
+      uSkin: { value: sk.base }, uMarks: { value: sk.marks }, uDrift: { value: driftTexture() },
+      uTile: { value: S.tile }, uBump: { value: S.bump }, uTone: { value: S.tone }, uDriftTone: { value: S.drift },
+      uVary: { value: S.vary }, uRot: { value: S.rot }, uMix2: { value: S.mix2 },
+      uCell: { value: S.cell }, uProb: { value: S.prob }, uMark: { value: new THREE.Vector2(...S.mark) },
     };
   }
   return skinUniforms[style];
@@ -286,6 +372,14 @@ export class StyleSampler {
     const wp = o.getWorldPosition(new THREE.Vector3());
     const seed = hash3(wp.x * 3.1, wp.y * 7.3, wp.z * 5.7);
     g.setAttribute('aSeed', new THREE.BufferAttribute(new Float32Array(pos.count).fill(seed), 1));
+    // Grain (knit): the piece's longest side, unless the Scene says otherwise (userData.grain = 'x' | 'y' | 'z').
+    const dims = [['x', size.x], ['y', size.y], ['z', size.z]].sort((a, b) => b[1] - a[1]).map((d) => d[0]);
+    const want = o.userData.grain;
+    const first = want || dims[0], second = dims.find((d) => d !== first);
+    const axis = (n) => ({ x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] })[n];
+    const fill = (v) => { const a = new Float32Array(pos.count * 3); for (let i = 0; i < pos.count; i++) a.set(v, i * 3); return a; };
+    g.setAttribute('aGrain', new THREE.BufferAttribute(fill(axis(first)), 3));
+    g.setAttribute('aGrain2', new THREE.BufferAttribute(fill(axis(second)), 3));
     this.geos.set(key, g);
     return g;
   }
