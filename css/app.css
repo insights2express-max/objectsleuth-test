@@ -1,0 +1,160 @@
+:root {
+  --bg: #1b1f2a;
+  --ink: #f3ead8;
+  --muted: #b9b2a4;
+  --gold: #e2b34a;
+  --panel: rgba(20, 22, 30, 0.72);
+  --panel-on: rgba(226, 179, 74, 0.92);
+  --gap: max(12px, env(safe-area-inset-top));
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+#stage:active { cursor: grabbing; }
+
+/* ---------- on-screen controls ---------- */
+#topbar {
+  position: fixed;
+  top: var(--gap);
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+#topbar > * { pointer-events: auto; }
+
+.brand {
+  font-weight: 800;
+  font-size: 20px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+.brand span { color: var(--gold); }
+
+.seg, #zoombar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+button {
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button:hover { background: rgba(255, 255, 255, 0.08); }
+button.on { background: var(--panel-on); color: #1b1f2a; font-weight: 700; }
+button:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+#zoombar {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+}
+#zoombar button { font-size: 22px; font-weight: 700; }
+#zoom-label { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; font-size: 15px; }
+
+#info {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* TEST ONLY: the style sampler */
+#sampler {
+  position: fixed;
+  top: calc(var(--gap) + 60px);
+  left: max(12px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px dashed rgba(226, 179, 74, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+#sampler .tag { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: var(--gold); }
+#sampler select {
+  font: inherit;
+  font-size: 15px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 0;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.1);
+}
+#sampler select option { color: #1b1f2a; }
+
+/* TEST ONLY: the test clock */
+#testclock {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 34px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px dashed rgba(226, 179, 74, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+#testclock .tag { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: var(--gold); }
+#testclock input { width: min(34vw, 260px); height: 44px; accent-color: var(--gold); touch-action: manipulation; }
+#tc-time { min-width: 46px; font-variant-numeric: tabular-nums; font-size: 15px; }
+#testclock button.on { background: var(--panel-on); }
+
+@media (max-width: 560px) {
+  .brand { display: none; }
+  #topbar { justify-content: center; }
+}

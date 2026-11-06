@@ -1,0 +1,6 @@
+Three.js r186 (npm "three" 0.186.1, published 2026-09-24)
+Source: https://registry.npmjs.org/three/-/three-0.186.1.tgz
+Verified npm integrity: sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==
+Files: build/three.module.js, build/three.core.js, LICENSE (MIT)
+9edde002b066a9a05676a6127f67735b62baf399bdea529f2f7e31657da769e6 *PWA BUILD/app/vendor/three/three.core.js
+9052042d676cb0fdc1ddfefe193053f34b7ac0513a616fdac4535d49987812ea *PWA BUILD/app/vendor/three/three.module.js

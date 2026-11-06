@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>ObjectSleuth</title>
+  <meta name="description" content="ObjectSleuth – a 3D hidden-objects game. Draft 1.">
+  <meta name="theme-color" content="#1b1f2a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <!-- iPad / iPhone home-screen support -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ObjectSleuth">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css">
+  <!-- lets the bundled Three.js add-ons find Three.js (all files are local) -->
+  <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
+</head>
+<body>
+  <canvas id="stage" aria-label="The Estate – Study"></canvas>
+
+  <header id="topbar">
+    <div class="brand">Object<span>Sleuth</span></div>
+    <div class="seg" role="group" aria-label="Lighting">
+      <button type="button" data-preset="auto" title="Follows the clock">🕰️ Auto</button>
+      <button type="button" data-preset="day">☀️ Day</button>
+      <button type="button" data-preset="dusk">🌇 Dusk</button>
+      <button type="button" data-preset="night">🕯️ Night</button>
+    </div>
+  </header>
+
+  <div id="zoombar" role="group" aria-label="Zoom">
+    <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+    <span id="zoom-label">×1.0</span>
+    <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+    <button type="button" id="zoom-reset" aria-label="Show whole room">⤢</button>
+  </div>
+
+  <!-- TEST ONLY: style sampler (compare art styles on the same Scene). -->
+  <div id="sampler" role="group" aria-label="Style sampler">
+    <span class="tag">STYLE SAMPLER</span>
+    <select id="style" aria-label="Art style"></select>
+    <button type="button" id="mini" aria-pressed="false" title="Tilt-shift: looks like a tiny model">🔍 Miniature</button>
+  </div>
+
+  <!-- TEST ONLY (u.f.n.): preview any time of day. To be parked after testing. -->
+  <div id="testclock" role="group" aria-label="Test clock">
+    <span class="tag">TEST CLOCK</span>
+    <input type="range" id="tc-range" min="0" max="23.98" step="0.0167" aria-label="Time of day">
+    <span id="tc-time">--:--</span>
+    <button type="button" id="tc-play" aria-label="Time-lapse" title="Time-lapse: 1 hour every 4 seconds">⏩</button>
+    <button type="button" id="tc-live" title="Back to the real clock">Live</button>
+  </div>
+
+  <div id="info"><span id="build"></span> · <span id="fps">– fps</span> · <span id="offline">…</span></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
