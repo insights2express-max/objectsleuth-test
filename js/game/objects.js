@@ -152,7 +152,7 @@ function scissorsShapes() {
 // lean / wedge: may stand on its edge or lean · upright: its rest pose already stands up (knight)
 export const OBJECT_DEFS = [
   { id: 'watch', name: 'Pocket watch', icon: '⌚', build: pocketWatch, shapes: watchShapes, lean: true },
-  { id: 'key', name: 'Brass key', icon: '🔑', build: brassKey, shapes: keyShapes, lean: true, socket: 'key-lock' },
+  { id: 'key', name: 'Brass key', icon: '🔑', build: brassKey, shapes: keyShapes, lean: true, socket: ['key-lock', 'globe-top'] },
   { id: 'magnifier', name: 'Magnifying glass', icon: '🔍', build: magnifier, shapes: magnifierShapes, lean: true },
   { id: 'spectacles', name: 'Reading spectacles', icon: '👓', build: spectacles, shapes: spectaclesShapes, lean: true },
   { id: 'knight', name: 'Chess knight', icon: '♞', build: chessKnight, shapes: knightShapes, lean: false, upright: true },

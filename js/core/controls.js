@@ -26,6 +26,8 @@ export class ViewControls {
     this.lastTap = null;
     this.onTap = null;     // set by the game (from M2: "did the player tap a hidden object?")
     this.onChange = null;
+    // v14: screen space covered by an on-screen panel (px); the room is framed in the rest
+    this.pad = { left: 0, right: 0, top: 0, bottom: 0 };
 
     el.addEventListener('pointerdown', (e) => this.down(e));
     el.addEventListener('pointermove', (e) => this.move(e));
@@ -69,13 +71,22 @@ export class ViewControls {
     this.resize();
   }
 
+  // The visible part of the screen (minus any panel), in px.
+  visibleRect() {
+    const r = this.el.getBoundingClientRect(), p = this.pad;
+    const w = Math.max(80, r.width - p.left - p.right), h = Math.max(80, r.height - p.top - p.bottom);
+    return { r, w, h, x0: r.left + p.left, y0: r.top + p.top };
+  }
+
   resize() {
-    const r = this.el.getBoundingClientRect();
-    const aspect = r.width / r.height || 1;
+    const { r, w, h } = this.visibleRect(), p = this.pad;
+    const aspect = w / h || 1;
     let W = this.contentW, H = this.contentH;
     if (W / H < aspect) W = H * aspect; else H = W / aspect;
-    this.W = W; this.H = H;
-    Object.assign(this.cam, { left: -W / 2, right: W / 2, top: H / 2, bottom: -H / 2 });
+    this.W = W; this.H = H;                       // world size of the VISIBLE part at zoom 1
+    const k = W / w;                              // world units per pixel at zoom 1
+    // the frustum covers the whole screen, but is centred on the visible part
+    Object.assign(this.cam, { left: -W / 2 - p.left * k, right: W / 2 + p.right * k, top: H / 2 + p.top * k, bottom: -H / 2 - p.bottom * k });
     this.apply();
   }
 
@@ -93,10 +104,10 @@ export class ViewControls {
 
   // Screen point -> offset from screen centre, in world units at the current zoom.
   toView(cx, cy) {
-    const r = this.el.getBoundingClientRect();
+    const { w, h, x0, y0 } = this.visibleRect();
     return {
-      x: ((cx - r.left) / r.width - 0.5) * this.W / this.zoom,
-      y: (0.5 - (cy - r.top) / r.height) * this.H / this.zoom,
+      x: ((cx - x0) / w - 0.5) * this.W / this.zoom,
+      y: (0.5 - (cy - y0) / h) * this.H / this.zoom,
     };
   }
 
@@ -111,15 +122,15 @@ export class ViewControls {
   }
 
   panBy(dx, dy) {
-    const r = this.el.getBoundingClientRect();
-    this.u -= (dx / r.width) * this.W / this.zoom;
-    this.v += (dy / r.height) * this.H / this.zoom;
+    const { w, h } = this.visibleRect();
+    this.u -= (dx / w) * this.W / this.zoom;
+    this.v += (dy / h) * this.H / this.zoom;
     this.apply();
   }
 
   centre() {
-    const r = this.el.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    const { w, h, x0, y0 } = this.visibleRect();
+    return { x: x0 + w / 2, y: y0 + h / 2 };
   }
 
   // Smooth (animated) zoom – used by buttons and double-tap.

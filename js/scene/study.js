@@ -27,22 +27,27 @@ export function buildStudy() {
   root.add(buildFloor(r));
   root.add(buildWalls(fx));
   root.add(buildFireplace(r, fx));
-  root.add(buildBookcase(r, books, -2.3, { level: 2, keep: 0.55, ornament: 'vase' }));
-  root.add(buildBookcase(r, books, 2.3, { level: 3, keep: 0.5, ornament: 'hourglass' }));
+  // hostKind: what a piece of furniture is, so embossed Target Objects go somewhere that makes sense (TO v3)
+  const tag = (o, kind) => { o.userData.hostKind = kind; return o; };
+  root.add(tag(buildBookcase(r, books, -2.3, { level: 2, keep: 0.55, ornament: 'vase' }), 'bookcase'));
+  root.add(tag(buildBookcase(r, books, 2.3, { level: 3, keep: 0.5, ornament: 'hourglass' }), 'bookcase'));
   const clock = buildClock();
   clock.group.position.set(-3.62, 0, -2.745);                       // back clear of the wall panelling
+  tag(clock.group, 'clock');
   root.add(clock.group);
   root.add(buildRug(fx, r));
-  root.add(group([buildDesk(r, fx, books)], 1.5, 0, 0.0));
+  root.add(tag(group([buildDesk(r, fx, books)], 1.5, 0, 0.0), 'desk'));
   root.add(group([buildDeskChair()], 1.5, 0, 0.85, Math.PI));
   root.add(group([buildArmchair()], -3.3, 0, 0.8, Math.PI / 2));     // back clear of the window sill
   root.add(group([buildSideTable(r, books)], -3.4, 0, 2.15));
   root.add(group([buildFloorLamp(fx)], -3.55, 0, -0.6));
   const globe = buildGlobe(r);
   globe.group.position.set(3.45, 0, -1.7);
+  // SOCKET: a small object (the key) may rest on top of the globe, just off the meridian ring (OS-19: 5.4.1)
+  fx.sockets.push({ kind: 'globe-top', parent: globe.group, pos: new THREE.Vector3(0, 1.272, 0.07), out: new THREE.Vector3(0, 1, 0), flat: true });
   root.add(globe.group);
   root.add(group([buildPlant(r)], 3.4, 0, 2.4));
-  root.add(group([buildChest(fx)], -1.3, 0, 2.3, 0.12));
+  root.add(tag(group([buildChest(fx)], -1.3, 0, 2.3, 0.12), 'chest'));
   root.add(group([buildFireTools()], 1.3, 0, -2.4));
   root.add(group([buildLogBasket()], -1.43, 0, -2.36, 0.2));     // clear of the hearth
   bookStack(r, books, 2.75, 0, 1.45, 5);
@@ -209,10 +214,12 @@ function buildWalls(fx) {
   shell(8.6, H + 0.6, 0.2, 0, -0.3, 3.2);       // front side
   shell(8.6, 0.1, 6.6, 0, H + 0.05, 0);         // ceiling
   // curtains, rod and finials
-  for (const z of [-0.30, 1.90]) {  // hang just beside the sill (which runs z -0.1 … 1.7), not through it
-    g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z - 0.1));
-    g.add(box(0.1, 2.08, 0.12, C.redDark, -3.92, 0.75, z));     // set back and a little lower: folds, no flush faces
-    g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z + 0.1));
+  // v14 (OS-19: 1.7.1): the curtains end just above the sill (top 0.945), so closed they would fall
+  // onto nothing – and can hang right beside the window frame again
+  for (const z of [-0.22, 1.82]) {
+    g.add(box(0.1, 1.9, 0.12, C.red, -3.9, 0.95, z - 0.1));
+    g.add(box(0.1, 1.88, 0.12, C.redDark, -3.92, 0.95, z));     // set back and a little lower: folds, no flush faces
+    g.add(box(0.1, 1.9, 0.12, C.red, -3.9, 0.95, z + 0.1));
     g.add(box(0.12, 0.05, 0.36, C.brass, -3.89, 1.45, z));
   }
   const rod = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.7, 6), mat(C.brass, { rough: 0.4, metal: 0.3 }));
@@ -229,7 +236,7 @@ function buildWalls(fx) {
   g.add(box(0.05, 0.66, 0.86, C.brass, -3.955, 1.4, -1.6));
   const still = painting(600, 438, drawStillLife, [[0.05, 0.95, 0.76, 0.97]]); // [x0, x1, y0, y1]: where a TO may be painted (the table)
   const pic = mesh(new THREE.PlaneGeometry(0.74, 0.54), new THREE.MeshStandardMaterial({ map: still.tex, roughness: 0.9 }), false);
-  fx.paintings.push({ ...still, mesh: pic, wM: 0.74, hM: 0.54 });
+  fx.paintings.push({ ...still, id: 'still', mesh: pic, wM: 0.74, hM: 0.54 });
   pic.rotation.y = Math.PI / 2;
   pic.position.set(-3.924, 1.73, -1.6);
   g.add(pic);
@@ -295,7 +302,7 @@ function buildFireplace(r, fx) {
   g.add(box(1.12, 0.8, 0.05, C.brass, 0, 1.5, zf + 0.275));     // frame clear of the mantel clock (no flicker)
   const land = painting(768, 516, drawLandscape, [[0.05, 0.95, 0.74, 0.96]]); // the foreground hills
   const paint = mesh(new THREE.PlaneGeometry(0.98, 0.66), new THREE.MeshStandardMaterial({ map: land.tex, roughness: 0.9 }), false);
-  fx.paintings.push({ ...land, mesh: paint, wM: 0.98, hM: 0.66 });
+  fx.paintings.push({ ...land, id: 'land', mesh: paint, wM: 0.98, hM: 0.66 });
   paint.position.set(0, 1.9, zf + 0.306);
   g.add(paint);
   return g;
@@ -469,6 +476,8 @@ function buildRug(fx, r) {
   }
   for (let x = 60; x <= KW - 60; x += 34) for (const y of [38, KH - 38]) slots.push({ x, y, s: 14, rot: 0, col: '#d4ad62', type: (x / 34) % 2 ? 0 : 2 });
   for (let y = 72; y <= KH - 72; y += 34) for (const x of [38, KW - 38]) slots.push({ x, y, s: 14, rot: Math.PI / 2, col: '#d4ad62', type: (y / 34) % 2 ? 0 : 2 });
+  // the medallion's centre: a designed, central place for a knotted-in Target Object (TO v3)
+  slots.unshift({ x: cx, y: cy, s: 28, rot: 0, col: '#d4ad62', type: -1, feature: true });
   const knotNoise = new Float32Array(KW * KH);
   for (let i = 0; i < knotNoise.length; i++) knotNoise[i] = 0.93 + r() * 0.12;
 
@@ -494,7 +503,7 @@ function buildRug(fx, r) {
         ctx.rotate(s.rot);
         ctx.fillStyle = fill; ctx.strokeStyle = ink; ctx.lineWidth = 1.3; ctx.lineJoin = 'round';
         if (replace && replace.slot === i) replace.draw(ctx, s.s);
-        else { rugOrnament(ctx, s.type, s.s); ctx.fill('evenodd'); ctx.stroke(); }
+        else if (s.type >= 0) { rugOrnament(ctx, s.type, s.s); ctx.fill('evenodd'); ctx.stroke(); }
         ctx.restore();
       }
     });
@@ -690,16 +699,31 @@ function buildGlobe(r) {
   tilt.position.set(0, 0.98, 0);
   tilt.rotation.z = 0.41;
   for (const sy of [-1, 1]) tilt.add(cyl(0.008, 0.008, 0.04, 6, C.brass, 0, sy > 0 ? 0.295 : -0.335, 0)); // pole pins
-  const tex = canvasTex(256, 128, (c, w, h) => {
+  // v14 (OS-19: 1.6.1): Earth's real continents (simplified outlines, longitude/latitude in degrees),
+  // in the parchment-and-sea colours of an antique globe
+  const tex = canvasTex(512, 256, (c, w, h) => {
     c.fillStyle = '#2f5f86'; c.fillRect(0, 0, w, h);
-    c.fillStyle = '#c9b77a';
-    for (let i = 0; i < 14; i++) {
-      c.beginPath();
-      c.ellipse(r() * w, 18 + r() * (h - 36), 8 + r() * 26, 6 + r() * 16, r() * 3, 0, Math.PI * 2);
-      c.fill();
-    }
+    const X = (lon) => ((lon + 180) / 360) * w, Y = (lat) => ((90 - lat) / 180) * h;
+    const land = (pts) => { c.beginPath(); pts.forEach(([lo, la], i) => (i ? c.lineTo(X(lo), Y(la)) : c.moveTo(X(lo), Y(la)))); c.closePath(); c.fill(); c.stroke(); };
+    c.fillStyle = '#d9c48a'; c.strokeStyle = '#8a6f3a'; c.lineWidth = 1.2;
+    land([[-168, 65], [-156, 71], [-125, 70], [-95, 72], [-80, 68], [-62, 58], [-56, 50], [-66, 44], [-76, 35], [-81, 25], [-90, 29], [-97, 25], [-97, 18], [-87, 15], [-79, 8], [-85, 11], [-105, 20], [-117, 32], [-124, 40], [-124, 48], [-135, 58], [-150, 60], [-165, 60]]); // North America
+    land([[-78, 9], [-62, 11], [-50, 0], [-35, -6], [-39, -16], [-48, -26], [-58, -36], [-65, -42], [-68, -54], [-74, -51], [-73, -37], [-71, -18], [-81, -5]]); // South America
+    land([[-52, 61], [-42, 60], [-20, 70], [-20, 80], [-40, 83], [-62, 80], [-72, 77]]);                                        // Greenland
+    land([[-10, 36], [-9, 43], [-2, 44], [-5, 48], [2, 51], [8, 54], [5, 58], [12, 66], [25, 71], [40, 68], [44, 46], [36, 41], [26, 40], [22, 37], [12, 38], [3, 42]]); // Europe
+    land([[-17, 21], [-16, 12], [-8, 4], [8, 4], [9, -2], [13, -12], [12, -18], [18, -34], [27, -34], [35, -23], [40, -15], [40, -3], [51, 11], [43, 12], [33, 30], [22, 32], [10, 37], [-6, 36]]); // Africa
+    land([[44, 46], [40, 68], [60, 70], [80, 73], [105, 78], [140, 72], [170, 66], [178, 64], [160, 58], [142, 50], [140, 40], [122, 30], [120, 22], [108, 15], [104, 2], [100, 14], [92, 22], [80, 10], [73, 20], [66, 25], [57, 25], [52, 28], [48, 30], [50, 37]]); // Asia
+    land([[43, 13], [52, 16], [58, 22], [56, 25], [50, 26], [48, 30], [36, 32], [38, 22]]);                                     // Arabia
+    land([[114, -22], [123, -16], [130, -12], [137, -12], [142, -11], [146, -19], [153, -26], [151, -34], [146, -39], [138, -35], [130, -32], [118, -35], [115, -33]]); // Australia
+    land([[166, -46], [174, -41], [178, -38], [172, -34]]);                                                                    // New Zealand
+    land([[130, 31], [136, 34], [141, 41], [142, 45], [138, 37], [132, 33]]);                                                   // Japan
+    land([[-6, 50], [2, 51], [-2, 56], [-5, 58], [-6, 55]]);                                                                    // Britain
+    land([[44, -25], [50, -16], [49, -12], [44, -17]]);                                                                         // Madagascar
+    c.fillRect(0, Y(-68), w, h - Y(-68)); c.beginPath(); c.moveTo(0, Y(-68)); c.lineTo(w, Y(-68)); c.stroke(); // Antarctica
+    c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 0.8;                                               // faint grid
+    for (let lo = -150; lo <= 180; lo += 30) { c.beginPath(); c.moveTo(X(lo), 0); c.lineTo(X(lo), h); c.stroke(); }
+    for (let la = -60; la <= 60; la += 30) { c.beginPath(); c.moveTo(0, Y(la)); c.lineTo(w, Y(la)); c.stroke(); }
   });
-  const ball = mesh(new THREE.SphereGeometry(0.3, 14, 10), mat(0xffffff, { map: tex, rough: 0.6 }));
+  const ball = mesh(new THREE.SphereGeometry(0.3, 22, 14), mat(0xffffff, { map: tex, rough: 0.6 }));
   tilt.add(ball);
   g.add(tilt);
   return { group: g, ball };

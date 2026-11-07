@@ -28,6 +28,33 @@ const COVER = {
   high: (adj, vis) => (adj >= 2 && vis <= 0.85) || vis <= 0.6,
 };
 
+// TO v3 CONTEXT RECIPES for painted forms: where each object would logically be in each picture.
+//   u, v = place in the picture (0–1 across, 0–1 down) · size = share of the picture's width
+//   turn = angle range (radians, clockwise) · why = the reason it is there
+const PAINT_RECIPES = {
+  still: { // a still life: flowers in a blue vase on a wooden table
+    magnifier: { u: [0.58, 0.66], v: [0.36, 0.46], size: 0.2, turn: [0.4, 0.8], why: 'held up to examine the flowers' },
+    scissors: { u: [0.56, 0.64], v: [0.8, 0.88], size: 0.15, turn: [-0.4, 0.2], why: 'beside the vase, for cutting the flowers' },
+    spectacles: { u: [0.16, 0.3], v: [0.84, 0.9], size: 0.16, turn: [-0.15, 0.15], why: 'set down on the table' },
+    watch: { u: [0.6, 0.7], v: [0.84, 0.9], size: 0.08, turn: [-0.6, 0.6], why: 'lying on the table by the fruit' },
+    key: { u: [0.12, 0.3], v: [0.86, 0.93], size: 0.13, turn: [-0.3, 0.3], why: 'left on the table' },
+    knight: { u: [0.8, 0.9], v: [0.79, 0.81], size: 0.12, turn: [0, 0], upright: true, why: 'a chess piece standing on the table' },
+  },
+  land: { // a landscape: hills, a few trees, an evening sky
+    watch: { u: [0.83, 0.845], v: [0.58, 0.61], size: 0.05, turn: [1.45, 1.7], why: 'hanging from a branch of the tree' },
+    key: { u: [0.4, 0.62], v: [0.9, 0.95], size: 0.07, turn: [-0.4, 0.4], why: 'lost on the path in the foreground' },
+    magnifier: { u: [0.25, 0.45], v: [0.88, 0.94], size: 0.08, turn: [-0.5, 0.5], why: 'dropped in the grass' },
+    spectacles: { u: [0.6, 0.75], v: [0.9, 0.95], size: 0.07, turn: [-0.2, 0.2], why: 'left in the grass' },
+    knight: { u: [0.49, 0.51], v: [0.545, 0.56], size: 0.06, turn: [0, 0], upright: true, why: 'a statue on the hilltop' },
+    scissors: { u: [0.3, 0.5], v: [0.9, 0.95], size: 0.07, turn: [-0.4, 0.4], why: 'forgotten by a gardener' },
+  },
+};
+// TO v3: which furniture each object may be EMBOSSED on (it makes sense there)
+const RELIEF_HOSTS = {
+  key: ['chest', 'desk'], watch: ['clock', 'desk'], magnifier: ['desk', 'bookcase'],
+  spectacles: ['desk', 'bookcase'], knight: ['chest', 'bookcase'], scissors: ['desk', 'chest'],
+};
+
 // soft round shadow picture (contact shadows) and a glowing ring picture (found effect)
 function radialTexture(stops) {
   const c = document.createElement('canvas');
@@ -157,7 +184,7 @@ export class Targets {
       hits.forEach((h, i) => {
         if (this.normalOf(h).y < 0.9) return;
         const above = i > 0 ? hits[i - 1].point.y : 3.1;
-        if (above - h.point.y >= minRoom) ok.push(h);
+        if (above - h.point.y >= minRoom) { const p = h.point.clone(); p.room = above - h.point.y; ok.push({ point: p }); }
       });
       if (ok.length) return ok[Math.floor(rnd() * ok.length)].point;
     }
@@ -176,7 +203,9 @@ export class Targets {
       if (!this.supported(it, m, p.y, solids)) continue;
       const adj = this.touching(it, m, solids);
       const vis = this.visible(this.posePoints(it, m, 0.8), solids);
-      if (vis < L.minVis || !COVER[this.level](adj, vis)) continue;
+      // TO v3 (OS-19: 5.3): also fine when concealed by its location – a shelf or desktop close above it
+      const tucked = p.room !== undefined && p.room < 0.6 && vis <= (this.level === 'high' ? 0.75 : 0.95);
+      if (vis < L.minVis || !(this.relaxed || COVER[this.level](adj, vis) || tucked)) continue;
       if (!this.clear(it, m, solids)) continue;
       return { m, kind: 'flat', at: p, vis, adj };
     }
@@ -299,13 +328,17 @@ export class Targets {
     return null;
   }
 
-  // Inside another object (a SOCKET on a PO/BG): the key in the trunk's lock.
   placeSocket(it, rnd, solids) {
-    const sockets = (this.fx.sockets || []).filter((k) => k.kind === it.def.socket);
+    const kinds = [].concat(it.def.socket || []);
+    const sockets = (this.fx.sockets || []).filter((k) => kinds.includes(k.kind));
     if (!sockets.length) return null;
     const sk = sockets[Math.floor(rnd() * sockets.length)];
     sk.parent.updateMatrixWorld(true);
     const at = sk.pos.clone().applyMatrix4(sk.parent.matrixWorld);
+    if (sk.flat) { // resting flat on top of something (e.g. the globe), any way round
+      const m = new THREE.Matrix4().compose(at, new THREE.Quaternion().setFromAxisAngle(UP, rnd() * Math.PI * 2), new THREE.Vector3(1, 1, 1));
+      return { m, kind: 'socket', at, vis: 1 };
+    }
     const out = sk.out.clone().transformDirection(sk.parent.matrixWorld);
     const along = out.clone().negate();                          // the key's length goes into the lock
     const bowUp = rnd() < 0.7;                                   // bow upright (usual) or flat
@@ -321,35 +354,48 @@ export class Targets {
   formWoven(it, rnd, solids) {
     const rug = this.fx.rug;
     if (!rug) return null;
-    const order = rug.slots.map((_, i) => i).sort(() => rnd() - 0.5);
-    for (const i of order) {
-      const s = rug.slots[i], p = rug.toWorld(s.x, s.y);
+    // TO v3: a designed place – the medallion's centre (most often), or an ornament on the rug's
+    // centre lines (symmetric) – at a scale that matches the rug's own motifs (OS-19: 5.2.1).
+    const cx = rug.KW / 2, cy = rug.KH / 2;
+    const ranked = rug.slots.map((s, i) => ({ s, i, rank: s.feature ? 0 : (Math.abs(s.x - cx) < 4 || Math.abs(s.y - cy) < 4) ? 1 : 2 }));
+    ranked.sort((a, b) => (a.rank - b.rank) || (rnd() - 0.5));
+    if (rnd() < 0.35) ranked.push(ranked.shift());       // sometimes not the centre, so it isn't always there
+    for (const { s, i } of ranked) {
+      const p = rug.toWorld(s.x, s.y);
       const r = s.s * rug.metresPerKnot * 0.6;
       const pts = [p, ...[0, 1, 2, 3].map((k) => p.clone().add(new THREE.Vector3(Math.cos(k * 1.57) * r, 0, Math.sin(k * 1.57) * r)))];
       const vis = this.visible(pts.map((q) => q.clone().setY(q.y + 0.004)), solids);
       if (vis < 0.6) continue;
-      const turn = (Math.floor(rnd() * 4) * Math.PI) / 2 + (rnd() - 0.5) * 0.3, flip = rnd() < 0.5 ? -1 : 1;
-      const size = s.s * (this.level === 'low' ? 2.0 : this.level === 'med' ? 1.75 : 1.5); // thin parts need knots to show
+      // aligned with the rug's design (quarter turns only), mirrored at random
+      const turn = (Math.floor(rnd() * 4) * Math.PI) / 2, flip = rnd() < 0.5 ? -1 : 1;
+      const size = s.s * (this.level === 'low' ? 1.3 : this.level === 'med' ? 1.15 : 1.0);
       rug.render({ slot: i, draw: (ctx) => { ctx.rotate(turn); ctx.scale(flip, 1); ctx.lineWidth = 0.6; drawOutline(ctx, it.def.shapes(), size); } });
-      return { kind: 'woven', at: p, slot: i, radius: size * 0.6 };
+      return { kind: 'woven', at: p, slot: i, radius: size * 0.6, colors: { fill: s.col, stroke: '#4a1616' } };
     }
     return null;
   }
   formPainted(it, rnd, solids, usedPaintings) {
     const list = (this.fx.paintings || []).filter((pt) => !usedPaintings.has(pt));
     if (!list.length) return null;
-    const pt = list[Math.floor(rnd() * list.length)];
-    const [x0, x1, y0, y1] = pt.regions[0];
-    const u = x0 + rnd() * (x1 - x0), v = y0 + rnd() * (y1 - y0);
+    // TO v3 "context recipes" (OS-19: 5.1): WHY would this picture show this object? Each recipe puts
+    // it where it makes sense (the magnifying glass held up to the flowers, scissors by the vase for
+    // cutting them, the watch hanging from a branch…), with some randomness inside the recipe.
+    const choices = list.filter((p) => PAINT_RECIPES[p.id] && PAINT_RECIPES[p.id][it.def.id]);
+    if (!choices.length) return null;
+    const pt = choices[Math.floor(rnd() * choices.length)];
+    const R = PAINT_RECIPES[pt.id][it.def.id], pick = ([a, b]) => a + rnd() * (b - a);
+    const u = pick(R.u), v = pick(R.v);
     const W = pt.canvas.width, H = pt.canvas.height;
-    const size = W * (this.level === 'high' ? 0.09 : this.level === 'med' ? 0.11 : 0.14);
-    const turn = (rnd() - 0.5) * 1.2, flip = rnd() < 0.5 ? -1 : 1;
+    const size = W * R.size * (this.level === 'high' ? 0.85 : this.level === 'med' ? 1 : 1.25);
+    const turn = pick(R.turn), flip = R.upright ? 1 : (rnd() < 0.5 ? -1 : 1);
+    const colors = {};
     pt.render((ctx) => {
       // pick up the colours already painted there, then paint the object in them (shaded, with a cast shadow)
       const px = ctx.getImageData(Math.floor(u * W), Math.floor(v * H), 1, 1).data;
       const base = `rgb(${px[0]},${px[1]},${px[2]})`;
       const dark = `rgb(${px[0] * 0.55 | 0},${px[1] * 0.55 | 0},${px[2] * 0.55 | 0})`;
       const lite = `rgb(${Math.min(255, px[0] * 1.35) | 0},${Math.min(255, px[1] * 1.35) | 0},${Math.min(255, px[2] * 1.35) | 0})`;
+      colors.fill = dark; colors.stroke = lite;
       ctx.translate(u * W, v * H);
       ctx.rotate(turn); ctx.scale(flip, 1);
       ctx.save(); ctx.translate(size * 0.04, size * 0.05); ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.filter = 'blur(3px)'; drawOutline(ctx, it.def.shapes(), size, false); ctx.restore();
@@ -360,7 +406,7 @@ export class Targets {
     usedPaintings.add(pt);
     pt.mesh.updateMatrixWorld(true);
     const at = new THREE.Vector3((u - 0.5) * pt.wM, (0.5 - v) * pt.hM, 0).applyMatrix4(pt.mesh.matrixWorld);
-    return { kind: 'painted', at, painting: pt, u, v: 1 - v, radius: size / W * 0.6 };
+    return { kind: 'painted', at, painting: pt, u, v: 1 - v, radius: size / W * 0.6, colors, why: R.why };
   }
   formRelief(it, rnd, solids, taken) {
     for (let a = 0; a < 90; a++) {
@@ -371,6 +417,8 @@ export class Targets {
       if (!h || h.object.isInstancedMesh || h.object.material.map) continue;   // not books, rug or pictures
       if (!h.object.geometry.boundingSphere) h.object.geometry.computeBoundingSphere();
       if (h.object.geometry.boundingSphere.radius > 1.2) continue;             // furniture, not whole walls
+      let host = h.object; while (host && !host.userData.hostKind) host = host.parent;
+      if (!host || !(RELIEF_HOSTS[it.def.id] || []).includes(host.userData.hostKind)) continue;   // TO v3: a fitting piece of furniture
       const n = this.normalOf(h);
       if (Math.abs(n.y) > 0.08 || n.dot(this.viewDir) < 0.25) continue;      // upright, facing the viewer
       if (this.near(h.point, taken)) continue;
@@ -419,8 +467,8 @@ export class Targets {
     const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; return (st >>> 0) / 4294967296; };
     for (const p of this.pops) { // a round restarted mid-animation: put everything back
       p.ring.removeFromParent(); p.ring.material.dispose();
-      p.meshes.forEach((o, i) => { o.material.dispose(); o.material = p.saved[i]; o.renderOrder = 0; });
-      p.it.group.scale.setScalar(p.s0);
+      if (p.a && p.a.saved) this.unghost(p.a);
+      if (p.a && !p.a.card && p.a.pos0) { p.a.obj.scale.setScalar(p.a.s0); p.a.obj.position.copy(p.a.pos0); }
     }
     this.pops = [];
     for (const r of this.reliefs) { r.removeFromParent(); r.geometry.dispose(); }
@@ -428,7 +476,7 @@ export class Targets {
     if (this.fx.globeBall) this.fx.globeBall.rotation.y = rnd() * Math.PI * 2;   // the globe is turned differently each round
     if (this.fx.rug) this.fx.rug.render(null);
     (this.fx.paintings || []).forEach((p) => p.render(null));
-    for (const it of this.items) { it.group.visible = false; it.shadow.visible = false; it.found = false; it.form = null; }
+    for (const it of this.items) { it.group.visible = false; it.shadow.visible = false; it.found = false; it.revealed = false; it.form = null; }
     this.root.updateMatrixWorld(true);
     const L = LEVELS[this.level];
     const solids = this.solids();
@@ -459,6 +507,7 @@ export class Targets {
           form = this.placeLiteral(it, rnd, solids, taken, LEVELS[easier]);
         }
         this.level = lvl;
+        if (!form) { this.relaxed = true; form = this.placeLiteral(it, rnd, solids, taken, LEVELS.low); this.relaxed = false; } // last resort: any fair spot
       }
       it.form = form;
       if (form && form.at) taken.push(form.at);
@@ -561,67 +610,168 @@ export class Targets {
     return !this.cast(c.clone().addScaledVector(toCam, 0.03), toCam, 60, this.solids()).length;
   }
 
-  // Found (OS-18 / OS-10: 1.5.1): the object stays centred in a glowing ring; together they grow and
-  // come towards the player, then fade – 2 seconds, and the view can be moved freely meanwhile.
-  // A figurative object (woven, painted, embossed) lifts out of its host as the real 3D object.
-  find(it) {
-    it.found = true;
+  // ---------------------------------------------------------------- found & revealed (v14)
+  // FOUND (OS-19: 1.5): the object stays centred in a glowing ring; together they grow and come towards
+  // the player, then fade (2 s). They always end up the same size ON SCREEN, whatever the zoom.
+  // The object animates in its in-Scene form: the 3D object, the embossed relief, or the knotted /
+  // painted picture lifting off its rug or painting.
+  // REVEALED (SDD hint): the object stays exactly where (and as big as) it is, inside a frozen ring,
+  // until the player taps anywhere; then it fades out within 1 s. Zooming and panning stay free.
+
+  // the thing that animates, in its Scene-specific form
+  actor(it) {
     const f = it.form;
-    let center;
-    if (f.m) {
-      center = it.box.getCenter(new THREE.Vector3()).applyMatrix4(f.m);
-    } else {                                   // figurative: the real object appears where its form was
-      if (f.kind === 'relief') f.mesh.visible = false;
-      if (f.kind === 'woven') this.fx.rug.render(null);
-      if (f.kind === 'painted') f.painting.render(null);
-      center = f.at.clone().addScaledVector(this.viewDir, 0.03);
-      it.group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), this.viewDir); // its face towards the player
-      it.group.scale.setScalar(1.3);
-      it.group.position.copy(center).sub(it.box.getCenter(new THREE.Vector3()).multiplyScalar(1.3).applyQuaternion(it.group.quaternion));
-      it.group.visible = true;
+    if (f.m) { // a real 3D object
+      const meshes = [];
+      it.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+      const center = it.box.getCenter(new THREE.Vector3()).applyMatrix4(f.m);
+      const size = it.box.getSize(new THREE.Vector3()).length() * it.group.scale.x;
+      return { obj: it.group, meshes, center, size, s0: it.group.scale.x, pos0: it.group.position.clone(), local: it.box.getCenter(new THREE.Vector3()) };
     }
-    it.shadow.visible = false;
-    // its own see-through copies of its materials while it fades (the originals come back after)
-    const meshes = [];
-    it.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
-    const saved = meshes.map((o) => o.material);
-    meshes.forEach((o) => { o.material = o.material.clone(); o.material.transparent = true; o.material.depthTest = false; o.renderOrder = 11; });
+    if (f.kind === 'relief') {
+      const m = f.mesh;
+      m.geometry.computeBoundingSphere();
+      return { obj: m, meshes: [m], center: m.position.clone(), size: m.geometry.boundingSphere.radius * 2 * m.scale.x, s0: m.scale.x, pos0: m.position.clone(), local: new THREE.Vector3() };
+    }
+    // woven / painted: a flat picture of the object in the colours it was knotted or painted in
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const x = c.getContext('2d');
+    x.translate(128, 128);
+    x.fillStyle = f.colors ? f.colors.fill : '#c48a4a';
+    x.strokeStyle = f.colors ? f.colors.stroke : '#4a1616';
+    x.lineWidth = 6;
+    x.lineJoin = 'round';
+    drawOutline(x, it.def.shapes(), 220);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const size = f.kind === 'woven' ? f.radius * 2.2 * this.fx.rug.metresPerKnot : f.radius * 2.4 * f.painting.wM;
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    card.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this.viewDir);
+    card.scale.setScalar(size);
+    card.position.copy(f.at).addScaledVector(this.viewDir, 0.01);
+    card.renderOrder = 11;
+    card.userData.decor = true;
+    card.visible = false;
+    this.root.add(card);
+    return { obj: card, meshes: [card], center: card.position.clone(), size, s0: size, pos0: card.position.clone(), local: new THREE.Vector3(), card: true };
+  }
+
+  // its own see-through copies of its materials while it animates (the originals come back after)
+  ghost(a) {
+    a.saved = a.meshes.map((o) => o.material);
+    if (a.card) return;
+    a.meshes.forEach((o) => { o.material = o.material.clone(); o.material.transparent = true; o.material.depthTest = false; o.renderOrder = 11; o.userData.ghost = true; });
+  }
+  unghost(a) {
+    if (a.card) { a.obj.removeFromParent(); a.obj.material.map.dispose(); a.obj.material.dispose(); a.obj.geometry.dispose(); return; }
+    a.meshes.forEach((o, i) => { o.material.dispose(); o.material = a.saved[i]; o.renderOrder = 0; o.userData.ghost = false; });
+  }
+
+  ring() {
     const ring = new THREE.Sprite(new THREE.SpriteMaterial({ map: RING_TEX, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending }));
     ring.renderOrder = 12;
     ring.userData.decor = true;
     this.root.add(ring);
-    const size = it.box.getSize(new THREE.Vector3()).length() * it.group.scale.x;
-    this.pops.push({ it, t: 0, ring, center, size: Math.max(0.05, size), start: it.group.position.clone(), s0: it.group.scale.x, meshes, saved });
+    return ring;
+  }
+
+  // remove an embedded form from its host (the rug / painting / furniture goes back to normal)
+  unembed(it) {
+    const f = it.form;
+    if (f.kind === 'woven') this.fx.rug.render(null);
+    if (f.kind === 'painted') f.painting.render(null);
+  }
+
+  find(it) {
+    it.found = true;
+    const a = this.actor(it);
+    this.ghost(a);
+    if (!it.form.m) this.unembed(it);           // the picture lifts off; the host goes back to normal
+    if (a.card) a.obj.visible = true;
+    it.shadow.visible = false;
+    this.pops.push({ it, mode: 'find', t: 0, ring: this.ring(), a });
     if (this.onChange) this.onChange(this);
     return it;
   }
 
+  // REVEAL n unfound objects (n = Infinity: all)
+  reveal(n) {
+    const left = this.items.filter((it) => it.form && !it.found).sort(() => Math.random() - 0.5).slice(0, n);
+    for (const it of left) {
+      it.found = true;
+      it.revealed = true;
+      const a = this.actor(it);
+      if (a.card) { a.obj.removeFromParent(); a.obj.material.map.dispose(); a.obj.material.dispose(); }
+      const center = a.center;
+      this.pops.push({ it, mode: 'reveal', phase: 'frozen', t: 0, ring: this.ring(), a: { ...a, card: false, meshes: [] }, center });
+    }
+    if (left.length && this.onChange) this.onChange(this);
+    return left.length;
+  }
+  // a tap anywhere while objects are revealed: let them fade (and use up that tap)
+  releaseReveals() {
+    const frozen = this.pops.filter((p) => p.mode === 'reveal' && p.phase === 'frozen');
+    for (const p of frozen) {
+      p.phase = 'fading';
+      p.t = 0;
+      if (p.it.form.m) { // the 3D object fades with its ring
+        const a = this.actor(p.it);
+        this.ghost(a);
+        p.a = a;
+      }
+    }
+    return frozen.length > 0;
+  }
+
   update(dt) {
-    for (const r of this.reliefs) if (r.material !== r.userData.host.material) r.material = r.userData.host.material; // follow art style
-    if (this.pops.length) this.changed = true;  // objects are moving: shadows and shading follow
+    for (const r of this.reliefs) if (r.material !== r.userData.host.material && !r.userData.ghost) r.material = r.userData.host.material; // follow art style
+    if (this.pops.length) this.changed = true;  // things are moving: shadows and shading follow
+    const px = this.pxPerUnit ? this.pxPerUnit() : 400, view = this.viewPx ? this.viewPx() : 700;
     for (const pop of this.pops) {
+      const it = pop.it, a = pop.a;
+      if (pop.mode === 'reveal') {
+        // the ring stays around the object, never smaller than ~70 px on screen, so it can be spotted at ×1
+        const rs = Math.max(a.size * 1.6, 70 / px);
+        pop.ring.position.copy(pop.center);
+        pop.ring.scale.set(rs, rs, 1);
+        if (pop.phase === 'frozen') { pop.ring.material.opacity = 0.75 + 0.25 * Math.min(1, (pop.t += dt) / 0.3); continue; }
+        pop.t += dt;
+        const fade = Math.max(0, 1 - pop.t / 1.0);  // gone within 1 second
+        pop.ring.material.opacity = fade;
+        if (a.meshes && a.meshes.length && a.saved) a.meshes.forEach((o) => { o.material.opacity = fade; });
+        if (pop.t >= 1.0) {
+          pop.done = true;
+          pop.ring.removeFromParent(); pop.ring.material.dispose();
+          if (a.saved) this.unghost(a);
+          if (it.form.m) { it.group.visible = false; it.shadow.visible = false; }
+          else if (it.form.kind === 'relief') it.form.mesh.visible = false;
+          else this.unembed(it);
+        }
+        continue;
+      }
+      // FOUND
       pop.t += dt;
       const k = Math.min(1, pop.t / 2.0), e = 1 - (1 - k) ** 3;          // 2 seconds, easing out
-      const grow = 1 + 1.6 * e;                                          // both grow together
-      const toward = this.viewDir.clone().multiplyScalar(0.8 * e);       // and come towards the player
-      const fade = k < 0.45 ? 1 : 1 - (k - 0.45) / 0.55;
-      const it = pop.it;
-      it.group.scale.setScalar(pop.s0 * grow);
-      // keep the object's centre on the ring's centre while it grows
-      const c = pop.center.clone().add(toward);
-      const offset = it.box.getCenter(new THREE.Vector3()).multiplyScalar(pop.s0 * grow).applyQuaternion(it.group.quaternion);
-      it.group.position.copy(c).sub(offset);
-      pop.meshes.forEach((o) => { o.material.opacity = fade; });
+      // grow so the object ends at ~1/3 of the visible screen, whatever the zoom (never less than ×1.3)
+      const targetGrow = Math.min(60, Math.max(1.3, (0.34 * view) / (a.size * px)));
+      const grow = 1 + (targetGrow - 1) * e;
+      const toward = this.viewDir.clone().multiplyScalar(1.2 * e);       // and come towards the player
+      const fade = k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45;
+      const c = a.center.clone().add(toward);
+      a.obj.scale.setScalar(a.s0 * grow);
+      const offset = a.local.clone().multiplyScalar(a.s0 * grow).applyQuaternion(a.obj.quaternion);
+      a.obj.position.copy(c).sub(offset);
+      a.meshes.forEach((o) => { o.material.opacity = fade; });
       pop.ring.position.copy(c);
-      const rs = pop.size * 1.15 * grow;
+      const rs = a.size * 1.2 * grow;
       pop.ring.scale.set(rs, rs, 1);
-      pop.ring.material.opacity = Math.min(1, k / 0.12) * fade;
+      pop.ring.material.opacity = Math.min(1, k / 0.1) * fade;
       if (k >= 1) {
-        pop.ring.removeFromParent(); pop.ring.material.dispose(); pop.done = true;
-        pop.meshes.forEach((o, i) => { o.material.dispose(); o.material = pop.saved[i]; o.renderOrder = 0; });
-        it.group.visible = false;
-        it.group.scale.setScalar(pop.s0);
-        it.group.position.copy(pop.start);
+        pop.done = true;
+        pop.ring.removeFromParent(); pop.ring.material.dispose();
+        this.unghost(a);
+        if (!a.card) { a.obj.visible = false; a.obj.scale.setScalar(a.s0); a.obj.position.copy(a.pos0); }
       }
     }
     this.pops = this.pops.filter((p) => !p.done);

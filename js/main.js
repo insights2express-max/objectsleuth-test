@@ -17,8 +17,8 @@ import { StaticBatcher } from './art/batch.js';
 
 // VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
 // with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
-const APP_VERSION = 'v13';
-const BUILD = 'Draft 1 · M1.7';
+const APP_VERSION = 'v14';
+const BUILD = 'Draft 1';
 const $ = (id) => document.getElementById(id);
 
 // ---------- renderer & scene ----------
@@ -53,7 +53,7 @@ const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, .
 
 // Miniature filter: blurs the top and bottom of the picture (tilt-shift) and adds a little
 // extra color, so the room looks like a tiny model photographed up close.
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 }) /* edge-smoothing 2× (OS-19: 3.3) */);
 composer.addPass(new RenderPass(scene, camera));
 
 // LIGHT LAB: contact shading ("ambient occlusion"): darkens corners, gaps and where objects meet.
@@ -153,6 +153,7 @@ function chooseStyle(name) {
   frontFaceShadows();
   renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true;  // new materials and shapes: draw shadows and shading again
   styleSel.value = sampler.name;
+  if (typeof updatePills === 'function') try { updatePills(); } catch (e) { /* (not ready yet) */ }
   try { localStorage.setItem('objectsleuth.style', sampler.name); } catch (e) { /* ignore */ }
 }
 function setMiniature(on) {
@@ -196,6 +197,7 @@ function setQuality(name) {
   setLab('ao', true); setLab('soft', quality.soft); setLab('fire', quality.fire);
   aoScale = quality.ao;
   setSharpness(Math.min(window.devicePixelRatio, quality.pr));
+  if (typeof updatePills === 'function') try { updatePills(); } catch (e) { /* (not ready yet) */ }
   try { localStorage.setItem('objectsleuth.quality', qualitySel.value); } catch (e) { /* ignore */ }
 }
 function setSharpness(pr) {
@@ -223,6 +225,7 @@ tcLive.addEventListener('click', () => { lighting.testHours = null; lighting.tim
 function showTestClock() {
   const h = lighting.hours();
   tcTime.textContent = fmt(h);
+  $('pill-clock').textContent = fmt(h);
   if (document.activeElement !== tcRange) tcRange.value = h;
   tcLive.classList.toggle('on', lighting.name === 'auto' && lighting.testHours === null);
   tcPlay.classList.toggle('on', !!lighting.timeLapse);
@@ -252,31 +255,115 @@ if (params.get('zoom')) {
   controls.focusOn(new THREE.Vector3(x, y, z), Number(params.get('zoom')));
 }
 
-// ---------- FIND LIST (first Target Object test: no scoring, no timer) ----------
-const findList = $('findlist'), findMsg = $('findmsg');
+// ---------- FIND panel (v14): drag by its header, resize by its grip, fold with the chevron ----------
+const panel = $('findpanel'), findList = $('findlist'), findMsg = $('findmsg');
+const fpHead = $('fp-head'), fpGrip = $('fp-grip'), fpToggle = $('fp-toggle');
 targets.onChange = (tg) => {
   findList.innerHTML = '';
   for (const it of tg.items) {
     const li = document.createElement('li');
-    li.textContent = it.icon + ' ' + it.name;
-    if (it.found) li.className = 'found';
+    li.className = it.revealed ? 'revealed' : it.found ? 'found' : '';
+    li.innerHTML = `<span class="ico"><span>${it.icon}</span></span><span class="nm"></span><span class="st">${it.revealed ? 'REVEALED' : it.found ? 'FOUND' : ''}</span>`;
+    li.querySelector('.nm').textContent = it.name;
     findList.appendChild(li);
   }
-  const done = tg.items.every((it) => it.found);
-  findMsg.textContent = done ? 'All found! ✓' : '';
-  findMsg.hidden = !done;
+  const done = tg.items.filter((it) => it.found).length, total = tg.items.length;
+  $('fp-done').textContent = `${done} / ${total}`;
+  $('fp-count').textContent = `${done} / ${total}`;
+  $('fp-bar').style.width = `${(100 * done) / total}%`;
+  findMsg.textContent = done === total ? "CONGRATULATIONS…you've discovered all the Target Objects to complete this Scene! Restart to play again." : '';
+  findMsg.hidden = done !== total;
+  layoutPanel();
 };
-controls.onTap = (cx, cy) => {
+// Where the panel is and how it is laid out. Remembered only within this Scene Instance.
+const fp = { x: 0, y: 70, w: 300, collapsed: false, edge: false, placed: false };
+function defaultsForScreen() {
+  const vw = window.innerWidth, vh = window.innerHeight, landscape = vw >= vh;
+  fp.collapsed = !landscape;                       // portrait: folded, at the bottom, list in rows
+  fp.w = landscape ? Math.min(300, vw * 0.3) : Math.min(560, vw - 24);
+  fp.x = landscape ? vw - fp.w - 12 : (vw - fp.w) / 2;
+  fp.y = landscape ? 70 : vh - 140;
+  fp.placed = true;
+}
+function placeTools() { // the tool pills sit just under the top bar (which wraps on narrow screens)
+  const tb = document.getElementById('topbar').getBoundingClientRect();
+  document.getElementById('tools').style.top = `${Math.round(tb.bottom + 8)}px`;
+}
+function layoutPanel() {
+  placeTools();
+  if (!fp.placed) defaultsForScreen();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  panel.classList.toggle('collapsed', fp.collapsed);
+  fpToggle.setAttribute('aria-expanded', String(!fp.collapsed));
+  panel.style.width = fp.collapsed ? 'auto' : `${fp.w}px`;
+  const r0 = panel.getBoundingClientRect();
+  fp.x = Math.min(Math.max(0, fp.x), Math.max(0, vw - r0.width));
+  fp.y = Math.min(Math.max(0, fp.y), Math.max(0, vh - r0.height));
+  panel.style.left = `${fp.x}px`;
+  panel.style.top = `${fp.y}px`;
+  const r = panel.getBoundingClientRect(), cxp = r.left + r.width / 2, cyp = r.top + r.height / 2;
+  // near the top or bottom: a horizontal list (2 rows of 3); at the sides: one column
+  fp.edge = cyp < vh * 0.22 || cyp > vh * 0.78;
+  panel.classList.toggle('edge', fp.edge);
+  panel.classList.toggle('side', !fp.edge);
+  fpGrip.className = 'fp-grip ' + (cxp > vw / 2 ? 'left' : 'right');
+  // frame the room in the space the panel leaves free
+  const pad = { left: 0, right: 0, top: 0, bottom: 0 };
+  if (!fp.collapsed && r.width > 40) {
+    if (fp.edge) { if (cyp < vh / 2) pad.top = r.bottom; else pad.bottom = vh - r.top; }
+    else if (cxp > vw / 2) pad.right = vw - r.left; else pad.left = r.right;
+  }
+  const p = controls.pad;
+  if (p.left !== pad.left || p.right !== pad.right || p.top !== pad.top || p.bottom !== pad.bottom) {
+    controls.pad = pad;
+    controls.resize();
+  }
+}
+function dragOn(el, onMove, onEnd) { // pointer drag helper (mouse, pen and touch)
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button') && el === fpHead) return;
+    e.preventDefault(); e.stopPropagation();
+    el.setPointerCapture(e.pointerId);
+    let lx = e.clientX, ly = e.clientY;
+    const move = (ev) => { onMove(ev.clientX - lx, ev.clientY - ly); lx = ev.clientX; ly = ev.clientY; };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); if (onEnd) onEnd(); };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  });
+}
+dragOn(fpHead, (dx, dy) => { fp.x += dx; fp.y += dy; layoutPanel(); });
+dragOn(fpGrip, (dx) => {
+  const left = fpGrip.classList.contains('left');
+  const w = Math.max(12, Math.min(window.innerWidth * 0.7, fp.w + (left ? -dx : dx)));
+  if (left) fp.x -= w - fp.w;
+  fp.w = w;
+  layoutPanel();
+});
+fpToggle.addEventListener('click', () => { fp.collapsed = !fp.collapsed; layoutPanel(); });
+window.addEventListener('resize', () => { fp.placed = false; layoutPanel(); });
+
+// ---------- tapping: find an object, or dismiss revealed ones ----------
+function screenToNdc(cx, cy) {
   const r = canvas.getBoundingClientRect();
-  const ndc = new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
-  const pxPerUnit = r.height / ((camera.top - camera.bottom) / camera.zoom);
-  targets.tap(ndc, camera, pxPerUnit);
+  return new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+}
+const pxPerUnit = () => canvas.getBoundingClientRect().height / ((camera.top - camera.bottom) / camera.zoom);
+targets.pxPerUnit = pxPerUnit;
+targets.viewPx = () => { const v = controls.visibleRect(); return Math.min(v.w, v.h); };
+controls.onTap = (cx, cy) => {
+  if (targets.releaseReveals()) return;           // a tap anywhere lets revealed objects go
+  targets.tap(screenToNdc(cx, cy), camera, pxPerUnit());
 };
+// REVEAL (SDD hint): shows unfound objects where they are, in a frozen ring, after zooming out to ×1
+$('reveal1').addEventListener('click', () => { controls.reset(); targets.reveal(1); });
+$('revealall').addEventListener('click', () => { controls.reset(); targets.reveal(Infinity); });
+
 $('newround').addEventListener('click', () => {
   findMsg.hidden = false; findMsg.textContent = 'Hiding…';
   setTimeout(() => targets.newRound(), 30); // let the note show before the (short) search
 });
-// CHAL LVL (test-only switch for now): Low / Medium / High concealment
+// CHAL LVL: Low / Medium / High concealment
 const chalSel = $('chal');
 Object.entries(LEVELS).forEach(([k, v]) => chalSel.add(new Option('CHAL LVL: ' + v.label, k)));
 try { const c = localStorage.getItem('objectsleuth.chal'); if (LEVELS[c]) targets.level = c; } catch (e) { /* ignore */ }
@@ -289,8 +376,35 @@ chalSel.addEventListener('change', () => {
   findMsg.hidden = false; findMsg.textContent = 'Hiding…';
   setTimeout(() => targets.newRound(), 30);
 });
+
+// ---------- test-tool pills: hover peeks (desktop), click/tap pins open or closed ----------
+document.querySelectorAll('.tool').forEach((tool) => {
+  const pill = tool.querySelector('.pill');
+  pill.addEventListener('click', () => {
+    const open = !tool.classList.contains('open');
+    tool.classList.toggle('open', open);
+    tool.classList.toggle('shut', !open);       // closing by click also stops the hover peek until the mouse leaves
+    pill.setAttribute('aria-expanded', String(open));
+  });
+  tool.addEventListener('mouseleave', () => tool.classList.remove('shut'));
+});
+function updatePills() {
+  $('pill-style').textContent = (STYLES[sampler.name] || {}).label || sampler.name;
+  $('pill-quality').textContent = quality.label;
+  $('pill-clock').textContent = fmt(lighting.hours());
+}
+
+// ---------- Overhead lights (OS-19: 4): steady ceiling light, on/off, independent of the presets ----------
+const overheadBtn = $('overhead');
+overheadBtn.addEventListener('click', () => {
+  lighting.setOverhead(!lighting.overhead);
+  overheadBtn.classList.toggle('on', lighting.overhead);
+  overheadBtn.setAttribute('aria-pressed', String(lighting.overhead));
+});
+
 targets.newRound(params.get('round') ? Number(params.get('round')) : undefined);
-window.objectsleuth = { targets, camera, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab }; // (for testing in the browser console)
+updatePills();
+window.objectsleuth = { targets, camera, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab, controls }; // (for testing in the browser console)
 
 // ---------- main loop ----------
 // ---------- main loop (v13 "zero-idle": draw only when something visible changes) ----------
@@ -312,7 +426,7 @@ window.addEventListener('resize', () => { busyUntil = performance.now() + 500; }
 function visibleState() {
   const c = lighting.cur, h = lighting.hours();
   return [c.sunI, c.hemiI, c.exposure, c.lampI, c.rays, c.windowI, c.toSun.x, c.toSun.y, c.toSun.z]
-    .map((v) => v.toFixed(3)).join() + c.bg.getHexString() + '|' + Math.floor(h * 60);
+    .map((v) => v.toFixed(3)).join() + c.bg.getHexString() + '|' + Math.floor(h * 60) + (lighting.overhead ? 'O' : '');
 }
 function draw(dt) {
   if (targets.changed) { targets.changed = false; renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true; }
@@ -330,7 +444,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min((now - last) / 1000, 0.25);
   if (moving) {
     last = now;
-    if (!wasMoving) { setAODetail(0.5); wasMoving = true; }
+    if (!wasMoving) { setAODetail(0.5); lighting.setMoving(true); wasMoving = true; }
     const t = (now - start) / 1000;
     controls.update(dt);
     lighting.update(dt, t);
@@ -340,7 +454,7 @@ renderer.setAnimationLoop(() => {
     draw(dt);
     moveFrames++; moveTime += dt;
   } else {
-    if (wasMoving) { wasMoving = false; setAODetail(1); draw(dt); } // the view just stopped: one refined picture
+    if (wasMoving) { wasMoving = false; setAODetail(1); lighting.setMoving(false); draw(dt); } // the view just stopped: one refined picture
     if (now - lastTick >= 250) { // the light check
       lastTick = now; last = now;
       const t = (now - start) / 1000;

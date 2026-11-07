@@ -110,6 +110,8 @@ export class Lighting {
     b.shadow.normalBias = 0.01;
     b.shadow.radius = 0.35;              // a broad, soft source
     this.softShadows = false;
+    this.moving = false;
+    this.overhead = false;
     this.fireShadows = false;
     this.set('auto', true);
   }
@@ -123,7 +125,29 @@ export class Lighting {
       if (s.map) { s.map.dispose(); s.map = null; }
     }
     // penumbra grows 1.5 cm per metre the shadow falls (real sun ≈ 1 cm; in shadow-map units, see softshadows.js)
-    s.radius = on ? 0.015 * (s.camera.far - s.camera.near) / (s.camera.right - s.camera.left) : 0;
+    this.softRadius = on ? 0.015 * (s.camera.far - s.camera.near) / (s.camera.right - s.camera.left) : 0;
+    s.radius = this.moving ? 0 : this.softRadius;
+  }
+
+  // v14 (OS-19: 3.1): while the view moves, sun shadows use the simple, cheaper filter; soft again on stop.
+  setMoving(moving) {
+    if (moving === this.moving) return;
+    this.moving = moving;
+    this.sun.shadow.radius = moving ? 0 : (this.softRadius || 0);
+  }
+
+  // v14 (OS-19: 4): OVERHEAD lights – steady light from the ceiling, on/off, independent of the presets.
+  // The light only joins the room while it is on, so "off" costs nothing.
+  setOverhead(on) {
+    this.overhead = on;
+    if (!this.overheadLight) {
+      this.overheadLight = new THREE.PointLight(0xfff1dc, 0, 11, 1.1);
+      this.overheadLight.position.set(0, 3.05, 0);
+      this.overheadFill = new THREE.HemisphereLight(0xfff4e6, 0x6b5a48, 0);
+    }
+    if (on) { this.scene.add(this.overheadLight, this.overheadFill); } else { this.overheadLight.removeFromParent(); this.overheadFill.removeFromParent(); }
+    this.overheadLight.intensity = on ? 9 : 0;
+    this.overheadFill.intensity = on ? 0.9 : 0;
   }
 
   // LIGHT LAB: flickering fireplace shadows.
@@ -195,7 +219,9 @@ export class Lighting {
       this._shadowSig = sig;
       this.shadowDirty = true;
     }
-    fx.lamps.forEach((l) => { l.light.intensity = l.base * c.lampI; });
+    // lamps: switched off by day, they leave the per-pixel light math entirely (OS-19: 3.2;
+    // switching on at dusk costs a one-time pause while the materials adjust)
+    fx.lamps.forEach((l) => { l.light.intensity = l.base * c.lampI; l.light.visible = c.lampI > 0.01; });
     // candles: a faint, flickering glow that only shows as the room gets dark
     (fx.candleLights || []).forEach((l, i) => { l.intensity = 0.45 * c.lampI * (0.85 + 0.1 * Math.sin(t * 11 + i * 2) + 0.05 * Math.sin(t * 27 + i)); });
     fx.bulbMats.forEach((m) => m.color.copy(BULB_OFF).lerp(BULB_ON, Math.min(1, c.lampI)));
