@@ -17,7 +17,7 @@ import { StaticBatcher } from './art/batch.js';
 
 // VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
 // with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 const BUILD = 'Draft 1 · M1.7';
 const $ = (id) => document.getElementById(id);
 
@@ -63,7 +63,9 @@ const gtao = new GTAOPass(scene, camera, 1, 1, undefined,
 gtao.blendIntensity = 1.0;
 let aoScale = 0.5;                     // share of screen resolution the contact shading is worked out at (set by the quality preset)
 const gtaoSetSize = gtao.setSize.bind(gtao);
-gtao.setSize = (w, h) => { gtaoSetSize(Math.max(1, Math.ceil(w * aoScale)), Math.max(1, Math.ceil(h * aoScale))); gtao.aoDirty = true; };
+let aoDetail = 1;                       // v13: 0.5 while the view moves (lighter), 1 when still (refined)
+gtao.setSize = (w, h) => { gtao.full = [w, h]; gtaoSetSize(Math.max(1, Math.ceil(w * aoScale * aoDetail)), Math.max(1, Math.ceil(h * aoScale * aoDetail))); gtao.aoDirty = true; };
+function setAODetail(k) { if (k === aoDetail) return; aoDetail = k; if (gtao.full) gtao.setSize(...gtao.full); }
 // v12: contact shading depends only on the view and the furniture, not on the lighting. So it is worked
 // out again only when the view moves or objects change; otherwise the stored result is simply reused.
 gtao.aoDirty = true;
@@ -174,7 +176,7 @@ try {
 const RETINA = window.devicePixelRatio > 1.25;
 const QUALITY = {
   auto: { label: 'Auto', ao: RETINA ? 0.5 : 0.75, soft: true, fire: false, pr: 1.5, idle: 24, adaptive: true },
-  high: { label: 'High', ao: RETINA ? 0.5 : 1, soft: true, fire: true, pr: 2, idle: 30 },
+  high: { label: 'High', ao: RETINA ? 0.5 : 1, soft: true, fire: false, pr: 2, idle: 30 },   // (v13: no fire)
   balanced: { label: 'Balanced', ao: RETINA ? 0.5 : 0.75, soft: true, fire: false, pr: 1.5, idle: 24 },
   battery: { label: 'Battery Saver', ao: 0.5, soft: false, fire: false, pr: 1.25, idle: 15 },
 };
@@ -291,27 +293,28 @@ targets.newRound(params.get('round') ? Number(params.get('round')) : undefined);
 window.objectsleuth = { targets, camera, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab }; // (for testing in the browser console)
 
 // ---------- main loop ----------
-// ---------- main loop (v12: only the work that is needed) ----------
-//  • moving (pan, zoom, a find animation): full speed
-//  • still: the "rest" pace of the quality preset – just enough for the flames, pendulum and clock
-//  • shadows and contact shading are drawn again only when something that shapes them changed
+// ---------- main loop (v13 "zero-idle": draw only when something visible changes) ----------
+//  • moving (pan, zoom, a find animation, test-clock time-lapse): full speed, lighter contact shading
+//  • still: a light check 4× a second (clock, sun, clouds, lamps); the room is redrawn ONLY if one of
+//    them visibly changed – usually about once a minute. Otherwise nothing is drawn at all.
+//  • when the view stops moving: one final, fully refined picture
 //  • Auto: if panning gets slow, the picture gets slightly less sharp (and sharper again when there's room)
 const fpsEl = $('fps');
-let last = performance.now(), lastDraw = 0, frames = 0, acc = 0, cpu = 0, draws = 0;
-let moveFrames = 0, moveTime = 0, slow = 0, quick = 0;
+let last = performance.now(), lastTick = 0, frames = 0, acc = 0, cpu = 0, draws = 0, lastSig = '', wasMoving = false;
+let moveFrames = 0, moveTime = 0, slow = 0, quick = 0, secStart = last;
 const start = last;
 renderer.info.autoReset = false;
-renderer.setAnimationLoop(() => {
-  const now = performance.now();
-  const moving = now - lastMove < 400 || controls.pointers.size > 0 || targets.pops.length > 0;
-  if (!moving && now - lastDraw < 1000 / quality.idle - 2) return;       // resting: nothing new to show yet
-  const dt = Math.min((now - last) / 1000, 0.1);
-  last = now; lastDraw = now;
-  const t = (now - start) / 1000;
-  controls.update(dt);
-  lighting.update(dt, t);
-  study.animate(t, lighting.hours());
-  targets.update(dt);
+// any tap or change in the on-screen controls (lighting, style, quality, Restart…): full speed for
+// 1.5 s, so changes glide smoothly instead of stepping
+let busyUntil = 0;
+for (const ev of ['pointerdown', 'change', 'keydown']) document.addEventListener(ev, () => { busyUntil = performance.now() + 1500; }, true);
+window.addEventListener('resize', () => { busyUntil = performance.now() + 500; });
+function visibleState() {
+  const c = lighting.cur, h = lighting.hours();
+  return [c.sunI, c.hemiI, c.exposure, c.lampI, c.rays, c.windowI, c.toSun.x, c.toSun.y, c.toSun.z]
+    .map((v) => v.toFixed(3)).join() + c.bg.getHexString() + '|' + Math.floor(h * 60);
+}
+function draw(dt) {
   if (targets.changed) { targets.changed = false; renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true; }
   if (lighting.shadowDirty) { lighting.shadowDirty = false; renderer.shadowMap.needsUpdate = true; }
   const c0 = performance.now();
@@ -319,12 +322,41 @@ renderer.setAnimationLoop(() => {
   if (miniature || lab.ao) composer.render(dt); else renderer.render(scene, camera);
   cpu += performance.now() - c0;
   draws = renderer.info.render.calls;
-  frames++; acc += dt;
-  if (moving) { moveFrames++; moveTime += dt; }
-  if (frames % 10 === 0) showTestClock();
-  if (acc >= 1) {
-    // the meter: frames per second · time to prepare a frame · drawing jobs · sharpness
-    fpsEl.textContent = `${Math.round(frames / acc)} fps · ${(cpu / frames).toFixed(1)} ms · ${draws} draws · ×${prNow.toFixed(2)}`;
+  frames++;
+}
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const moving = now - lastMove < 300 || now < busyUntil || controls.pointers.size > 0 || targets.pops.length > 0 || !!lighting.timeLapse || !!controls.anim;
+  const dt = Math.min((now - last) / 1000, 0.25);
+  if (moving) {
+    last = now;
+    if (!wasMoving) { setAODetail(0.5); wasMoving = true; }
+    const t = (now - start) / 1000;
+    controls.update(dt);
+    lighting.update(dt, t);
+    study.animate(t, lighting.hours());
+    targets.update(dt);
+    gtao.aoDirty = true;
+    draw(dt);
+    moveFrames++; moveTime += dt;
+  } else {
+    if (wasMoving) { wasMoving = false; setAODetail(1); draw(dt); } // the view just stopped: one refined picture
+    if (now - lastTick >= 250) { // the light check
+      lastTick = now; last = now;
+      const t = (now - start) / 1000;
+      controls.update(dt);
+      lighting.update(dt, t);
+      study.animate(t, lighting.hours());
+      targets.update(dt);
+      const sig = visibleState();
+      if (sig !== lastSig || targets.changed || lighting.shadowDirty || gtao.aoDirty) { lastSig = sig; draw(dt); }
+    }
+  }
+  if (now - secStart >= 1000) { // the meter, once a second
+    acc = (now - secStart) / 1000;
+    const fps = Math.round(frames / acc);
+    fpsEl.textContent = frames ? `${fps} fps · ${(cpu / frames).toFixed(1)} ms · ${draws} draws · ×${prNow.toFixed(2)}` : `0 fps (resting) · ×${prNow.toFixed(2)}`;
+    showTestClock();
     if (quality.adaptive && moveTime > 0.5) {
       const mfps = moveFrames / moveTime;
       slow = mfps < 40 ? slow + 1 : 0;
@@ -332,7 +364,7 @@ renderer.setAnimationLoop(() => {
       if (slow >= 2 && prNow > 0.75) { setSharpness(prNow - 0.15); slow = 0; }
       if (quick >= 3 && prNow < Math.min(window.devicePixelRatio, quality.pr)) { setSharpness(Math.min(prNow + 0.1, window.devicePixelRatio, quality.pr)); quick = 0; }
     }
-    frames = 0; acc = 0; cpu = 0; moveFrames = 0; moveTime = 0;
+    frames = 0; cpu = 0; moveFrames = 0; moveTime = 0; secStart = now;
   }
 });
 

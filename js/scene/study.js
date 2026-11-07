@@ -1,8 +1,6 @@
 // The Estate – Study (placeholder Scene for Draft 1).
 // A cut-away low-poly diorama: back wall + left wall, open to the front and right.
 // Units are roughly metres. Floor is y = 0. Room spans x -4..4, z -3..3, walls 3.2 high.
-// Test shortcut: ?swing=1 or ?swing=-1 holds the pendulum at one end (for screenshots).
-const TEST_SWING = new URLSearchParams(location.search).has('swing') ? Number(new URLSearchParams(location.search).get('swing')) : null;
 import * as THREE from '../../vendor/three/three.module.js';
 import { mat, glow, mesh, box, cyl, group, canvasTex } from '../art/kit.js';
 import { rng, range, pick } from '../core/random.js';
@@ -50,6 +48,7 @@ export function buildStudy() {
   bookStack(r, books, 2.75, 0, 1.45, 5);
   root.add(makeBooks(books));
   seatIntoRoom(root);
+  fx.globeBall = globe.ball;
   // things that move: never merged into the big batched pieces (art/batch.js)
   for (const o of [clock.pend, clock.minute, clock.hour, globe.ball, ...fx.fireFlames, ...fx.flames, ...fx.embers]) o.userData.dynamic = true;
 
@@ -71,13 +70,12 @@ export function buildStudy() {
         f.scale.y = u.base * (1 + 0.18 * Math.sin(t * 9 + u.phase) + 0.08 * Math.sin(t * 23 + u.phase * 2));
       }
       // clock: real time, and a swinging pendulum
-      clock.pend.rotation.z = 0.085 * (TEST_SWING ?? Math.sin(t * Math.PI)); // stays inside the visible opening
+      // (v13: no pendulum swing – the case has a solid door)
       // (follows the test clock when it is in use)
       const m = (hours * 60) % 60;
       clock.minute.rotation.z = -(m / 60) * Math.PI * 2;
       clock.hour.rotation.z = -((hours % 12) / 12) * Math.PI * 2;
-      // globe turns slowly
-      globe.ball.rotation.y = t * 0.12;
+      // (v13: the globe stands still; it gets a new random turn each round – see targets.newRound)
     },
   };
 }
@@ -211,7 +209,7 @@ function buildWalls(fx) {
   shell(8.6, H + 0.6, 0.2, 0, -0.3, 3.2);       // front side
   shell(8.6, 0.1, 6.6, 0, H + 0.05, 0);         // ceiling
   // curtains, rod and finials
-  for (const z of [-0.22, 1.82]) {
+  for (const z of [-0.30, 1.90]) {  // hang just beside the sill (which runs z -0.1 … 1.7), not through it
     g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z - 0.1));
     g.add(box(0.1, 2.08, 0.12, C.redDark, -3.92, 0.75, z));     // set back and a little lower: folds, no flush faces
     g.add(box(0.1, 2.1, 0.12, C.red, -3.9, 0.75, z + 0.1));
@@ -255,57 +253,37 @@ function buildFireplace(r, fx) {
   // andirons and logs
   for (const x of [-0.3, 0.3]) g.add(box(0.04, 0.08, 0.36, C.iron, x, 0.05, zf + 0.25));   // andirons (top 0.13)
   [-0.32, 0.28].forEach((ry, i) => {
-    const log = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.62, 6), C.logs);
+    const log = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.62, 6), 0x3a2a20);   // charred
     log.rotation.set(0, ry, Math.PI / 2);
     log.position.set(0, 0.205 + i * 0.15, zf + 0.25);             // the first rests on the andirons, the second on the first
     g.add(log);
   });
-  // glowing embers on the grate (they show most when the flames have died down at night)
+  // v13 "zero-idle" (OS-18): a COLD fireplace – no flames, embers or fire light. Anything that moves
+  // forces the whole room to be redrawn many times a second, which heated the iPad. A bed of grey ash
+  // under charred logs; the logs above already sit on the andirons.
   fx.embers = [];
-  for (let i = 0; i < 9; i++) {
-    const e = new THREE.Mesh(new THREE.IcosahedronGeometry(range(r, 0.025, 0.045), 0), glow(0xff5a1a));
-    e.position.set(range(r, -0.3, 0.3), range(r, 0.08, 0.13), zf + range(r, 0.14, 0.34));
-    e.rotation.set(r() * 3, r() * 3, r() * 3);
-    e.userData = { phase: r() * 10, speed: range(r, 0.4, 0.9) };
-    g.add(e);
-    fx.embers.push(e);
-  }
-  // fire flames: each lives its own random life (height, width, brightness, how long each flare lasts)
   fx.fireFlames = [];
-  const fb = glow(0xffd36a);
-  for (let i = 0; i < 4; i++) {
-    const geo = new THREE.ConeGeometry(0.09, 0.36, 5).translate(0, 0.18, 0); // grows up from its base
-    const f = new THREE.Mesh(geo, glow(0xff8a2a));
-    f.position.set(-0.24 + i * 0.16, 0.25, zf + 0.25);
-    f.userData = { h: 0.8, w: 1, b: 0.7, th: 0.8, tw: 1, tb: 0.7, next: 0, rate: 6, phase: r() * 10 };
-    g.add(f);
-    fx.fireFlames.push(f);
+  const ash = box(1.0, 0.012, 0.34, mat(0x6e6a66, { rough: 1 }), 0, 0.07, zf + 0.22);
+  ash.castShadow = false;
+  g.add(ash);
+  for (let i = 0; i < 7; i++) { // a few charred chunks in the ash
+    const c = mesh(new THREE.IcosahedronGeometry(range(r, 0.02, 0.035), 0), mat(0x2a2422, { rough: 1 }));
+    c.position.set(range(r, -0.35, 0.35), 0.085, zf + range(r, 0.12, 0.34));
+    c.rotation.set(r() * 3, r() * 3, r() * 3);
+    g.add(c);
   }
-  const fire = new THREE.PointLight(0xff8a3a, 4, 9, 1.4);
-  fire.position.set(0, 0.55, zf + 0.7);
-  g.add(fire);
-  fx.fireLight = fire;
-  // warm light bouncing off the firebox back wall (used with fire shadows; see lighting.js)
-  const bounce = new THREE.PointLight(0xff9a55, 0, 3.0, 2);
-  bounce.position.set(0, 0.62, zf + 0.12);
-  bounce.visible = false;
-  g.add(bounce);
-  fx.bounceLight = bounce;
-  // mantel ornaments: candlesticks, small clock, vase
+  // The fire and bounce lights still exist (lighting.js reads them) but are NOT added to the room,
+  // so they cost nothing.
+  fx.fireLight = new THREE.PointLight(0xff8a3a, 0, 9, 1.4);
+  fx.fireLight.position.set(0, 0.55, zf + 0.7);
+  fx.bounceLight = new THREE.PointLight(0xff9a55, 0, 3.0, 2);
+  fx.bounceLight.visible = false;
+  // mantel ornaments: unlit candles in candlesticks (OS-18: 1.4), small clock, vase
   for (const x of [-0.88, 0.88]) {
     g.add(cyl(0.05, 0.06, 0.04, 8, C.brass, x, 1.24, zf + 0.36));
     g.add(cyl(0.015, 0.02, 0.12, 6, C.brass, x, 1.28, zf + 0.36));
     g.add(cyl(0.028, 0.028, 0.2, 8, C.cream, x, 1.4, zf + 0.36));
-    const fl = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 5), fb);
-    fl.position.set(x, 1.64, zf + 0.36);
-    fl.userData = { base: 1, phase: r() * 10 };
-    g.add(fl);
-    fx.flames.push(fl);
-    // a small, warm candle light (no shadows): a faint glow on the chimney breast and mantel in the dark
-    const cl = new THREE.PointLight(0xffc27a, 0, 1.8, 2);
-    cl.position.set(x, 1.67, zf + 0.36);
-    g.add(cl);
-    fx.candleLights.push(cl);
+    g.add(cyl(0.002, 0.002, 0.014, 4, C.soot, x, 1.6, zf + 0.36));   // the black wick
   }
   g.add(box(0.22, 0.2, 0.12, C.woodDark, 0.4, 1.24, zf + 0.33));   // (all mantel items stand in front of the chimney breast)
   const face = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.01, 12), C.cream, false);
@@ -444,19 +422,13 @@ function buildClock() {
     return p;
   };
   const minute = hand(0.16, 0.014), hour = hand(0.1, 0.022);
-  // glass in front of the cavity
-  const glass = mesh(new THREE.BoxGeometry(0.3, 0.9, 0.006),
-    mat(0xcfe0e8, { rough: 0.05, transparent: true, opacity: 0.18 }), false);
-  glass.position.set(0, 1.15, 0.095);
-  g.add(glass);
-  const pend = new THREE.Group();
-  pend.position.set(0, 1.56, 0.064);                               // just in front of the back panel
-  pend.add(box(0.014, 0.62, 0.006, C.brass, 0, -0.62, 0));
-  const bob = mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.012, 12), mat(C.brass, { rough: 0.35, metal: 0.4 }), false);
-  bob.rotation.x = Math.PI / 2;
-  bob.position.set(0, -0.66, 0);
-  pend.add(bob);
-  g.add(pend);
+  // v13 (OS-18: 1.2): a solid trunk door instead of the pendulum window – nothing swings, so nothing
+  // forces the room to be redrawn. A raised panel and a small brass keyhole plate.
+  g.add(box(0.3, 0.9, 0.03, C.wood, 0, 0.7, 0.09));               // the door (front 0.105, just proud of the stiles)
+  g.add(box(0.22, 0.72, 0.012, C.woodLight, 0, 0.79, 0.111));      // raised panel
+  g.add(box(0.03, 0.05, 0.004, C.brass, 0.1, 1.08, 0.119));        // keyhole plate
+  const pend = new THREE.Group();                                  // (kept empty: nothing to swing)
+  return { group: g, pend, minute, hour };
   return { group: g, pend, minute, hour };
 }
 

@@ -417,10 +417,15 @@ export class Targets {
   newRound(seed = Math.random() * 1e9) {
     let st = seed >>> 0 || 1;
     const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; return (st >>> 0) / 4294967296; };
-    for (const p of this.pops) { p.ring.removeFromParent(); p.ring.material.dispose(); }
+    for (const p of this.pops) { // a round restarted mid-animation: put everything back
+      p.ring.removeFromParent(); p.ring.material.dispose();
+      p.meshes.forEach((o, i) => { o.material.dispose(); o.material = p.saved[i]; o.renderOrder = 0; });
+      p.it.group.scale.setScalar(p.s0);
+    }
     this.pops = [];
     for (const r of this.reliefs) { r.removeFromParent(); r.geometry.dispose(); }
     this.reliefs = [];
+    if (this.fx.globeBall) this.fx.globeBall.rotation.y = rnd() * Math.PI * 2;   // the globe is turned differently each round
     if (this.fx.rug) this.fx.rug.render(null);
     (this.fx.paintings || []).forEach((p) => p.render(null));
     for (const it of this.items) { it.group.visible = false; it.shadow.visible = false; it.found = false; it.form = null; }
@@ -556,44 +561,67 @@ export class Targets {
     return !this.cast(c.clone().addScaledVector(toCam, 0.03), toCam, 60, this.solids()).length;
   }
 
+  // Found (OS-18 / OS-10: 1.5.1): the object stays centred in a glowing ring; together they grow and
+  // come towards the player, then fade – 2 seconds, and the view can be moved freely meanwhile.
+  // A figurative object (woven, painted, embossed) lifts out of its host as the real 3D object.
   find(it) {
     it.found = true;
     const f = it.form;
-    const at = f.m ? it.box.getCenter(new THREE.Vector3()).applyMatrix4(f.m) : f.at.clone();
+    let center;
+    if (f.m) {
+      center = it.box.getCenter(new THREE.Vector3()).applyMatrix4(f.m);
+    } else {                                   // figurative: the real object appears where its form was
+      if (f.kind === 'relief') f.mesh.visible = false;
+      if (f.kind === 'woven') this.fx.rug.render(null);
+      if (f.kind === 'painted') f.painting.render(null);
+      center = f.at.clone().addScaledVector(this.viewDir, 0.03);
+      it.group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), this.viewDir); // its face towards the player
+      it.group.scale.setScalar(1.3);
+      it.group.position.copy(center).sub(it.box.getCenter(new THREE.Vector3()).multiplyScalar(1.3).applyQuaternion(it.group.quaternion));
+      it.group.visible = true;
+    }
+    it.shadow.visible = false;
+    // its own see-through copies of its materials while it fades (the originals come back after)
+    const meshes = [];
+    it.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    const saved = meshes.map((o) => o.material);
+    meshes.forEach((o) => { o.material = o.material.clone(); o.material.transparent = true; o.material.depthTest = false; o.renderOrder = 11; });
     const ring = new THREE.Sprite(new THREE.SpriteMaterial({ map: RING_TEX, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending }));
-    ring.renderOrder = 10;
+    ring.renderOrder = 12;
     ring.userData.decor = true;
     this.root.add(ring);
-    const r = f.m ? it.box.getSize(new THREE.Vector3()).length() * 0.5 * it.group.scale.x : 0.06;
-    this.pops.push({ it, t: 0, at, ring, r: Math.max(0.035, r), start: it.group.position.clone(), s0: it.group.scale.x });
+    const size = it.box.getSize(new THREE.Vector3()).length() * it.group.scale.x;
+    this.pops.push({ it, t: 0, ring, center, size: Math.max(0.05, size), start: it.group.position.clone(), s0: it.group.scale.x, meshes, saved });
     if (this.onChange) this.onChange(this);
     return it;
   }
 
-  // Found: a glowing ring rises and grows towards the viewer while it fades; the object goes with it.
   update(dt) {
     for (const r of this.reliefs) if (r.material !== r.userData.host.material) r.material = r.userData.host.material; // follow art style
     if (this.pops.length) this.changed = true;  // objects are moving: shadows and shading follow
     for (const pop of this.pops) {
       pop.t += dt;
-      const k = Math.min(1, pop.t / 1.1), e = 1 - (1 - k) * (1 - k);
-      const toward = this.viewDir.clone().multiplyScalar(0.35 * e).add(new THREE.Vector3(0, 0.12 * e, 0));
-      pop.ring.position.copy(pop.at).add(toward);
-      const rs = pop.r * (2.4 + 3.5 * e);
+      const k = Math.min(1, pop.t / 2.0), e = 1 - (1 - k) ** 3;          // 2 seconds, easing out
+      const grow = 1 + 1.6 * e;                                          // both grow together
+      const toward = this.viewDir.clone().multiplyScalar(0.8 * e);       // and come towards the player
+      const fade = k < 0.45 ? 1 : 1 - (k - 0.45) / 0.55;
+      const it = pop.it;
+      it.group.scale.setScalar(pop.s0 * grow);
+      // keep the object's centre on the ring's centre while it grows
+      const c = pop.center.clone().add(toward);
+      const offset = it.box.getCenter(new THREE.Vector3()).multiplyScalar(pop.s0 * grow).applyQuaternion(it.group.quaternion);
+      it.group.position.copy(c).sub(offset);
+      pop.meshes.forEach((o) => { o.material.opacity = fade; });
+      pop.ring.position.copy(c);
+      const rs = pop.size * 1.15 * grow;
       pop.ring.scale.set(rs, rs, 1);
-      pop.ring.material.opacity = k < 0.25 ? k / 0.25 : 1 - (k - 0.25) / 0.75;
-      const it = pop.it, f = it.form;
-      if (f.m) {
-        it.group.position.copy(pop.start).add(toward);
-        it.group.scale.setScalar(pop.s0 * (1 + 0.5 * e) * (1 - k * k));
-        it.shadow.material.opacity *= 0.9;
-      }
+      pop.ring.material.opacity = Math.min(1, k / 0.12) * fade;
       if (k >= 1) {
         pop.ring.removeFromParent(); pop.ring.material.dispose(); pop.done = true;
-        it.group.visible = false; it.shadow.visible = false;
-        if (f.kind === 'relief') f.mesh.visible = false;
-        if (f.kind === 'woven') this.fx.rug.render(null);
-        if (f.kind === 'painted') f.painting.render(null);
+        pop.meshes.forEach((o, i) => { o.material.dispose(); o.material = pop.saved[i]; o.renderOrder = 0; });
+        it.group.visible = false;
+        it.group.scale.setScalar(pop.s0);
+        it.group.position.copy(pop.start);
       }
     }
     this.pops = this.pops.filter((p) => !p.done);

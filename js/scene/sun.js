@@ -128,7 +128,7 @@ export class SunShafts {
       const u = it.m.material.uniforms;
       u.uStrength.value = s;
       u.uColor.value.copy(color);
-      u.uTime.value = t;
+      u.uTime.value = 0;   // v13: streaks stay still – moving streaks forced the room to be redrawn constantly
     }
   }
 }
