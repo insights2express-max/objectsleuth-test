@@ -13,10 +13,11 @@ import { VerticalTiltShiftShader } from '../vendor/three/addons/shaders/Vertical
 import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
 import { installGradedShadows } from './scene/softshadows.js';
 import { Targets, LEVELS } from './game/targets.js';
+import { StaticBatcher } from './art/batch.js';
 
 // VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
 // with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
-const APP_VERSION = 'v11';
+const APP_VERSION = 'v12';
 const BUILD = 'Draft 1 · M1.7';
 const $ = (id) => document.getElementById(id);
 
@@ -27,6 +28,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = graded ? THREE.BasicShadowMap : THREE.PCFShadowMap; // graded filter works on the basic map
+renderer.shadowMap.autoUpdate = false;   // v12: shadows are drawn once and reused; see "shadowsDirty" in the main loop
 renderer.toneMapping = THREE.NeutralToneMapping;
 
 const scene = new THREE.Scene();
@@ -46,6 +48,7 @@ const fx = study.fx;
 // FIRST TARGET OBJECT TEST: added before the style sampler, so they take on each art style too.
 const VIEW_DIR = new THREE.Vector3(1, 0.95, 1.2);
 const targets = new Targets(study.root, study.fx, VIEW_DIR);
+const batcher = new StaticBatcher(study.root);
 const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, ...fx.windowMats]);
 
 // Miniature filter: blurs the top and bottom of the picture (tilt-shift) and adds a little
@@ -58,8 +61,22 @@ composer.addPass(new RenderPass(scene, camera));
 const gtao = new GTAOPass(scene, camera, 1, 1, undefined,
   { radius: 0.35, distanceExponent: 1.5, thickness: 0.5, scale: 1.25, samples: 16, screenSpaceRadius: false });
 gtao.blendIntensity = 1.0;
+let aoScale = 0.5;                     // share of screen resolution the contact shading is worked out at (set by the quality preset)
 const gtaoSetSize = gtao.setSize.bind(gtao);
-gtao.setSize = (w, h) => { const k = renderer.getPixelRatio() > 1.25 ? 0.5 : 1; gtaoSetSize(Math.ceil(w * k), Math.ceil(h * k)); };
+gtao.setSize = (w, h) => { gtaoSetSize(Math.max(1, Math.ceil(w * aoScale)), Math.max(1, Math.ceil(h * aoScale))); gtao.aoDirty = true; };
+// v12: contact shading depends only on the view and the furniture, not on the lighting. So it is worked
+// out again only when the view moves or objects change; otherwise the stored result is simply reused.
+gtao.aoDirty = true;
+const gtaoRender = gtao.render.bind(gtao);
+gtao.render = function (r, writeBuffer, readBuffer, dt, mask) {
+  if (this.aoDirty) { this.aoDirty = false; return gtaoRender(r, writeBuffer, readBuffer, dt, mask); }
+  this.copyMaterial.uniforms.tDiffuse.value = readBuffer.texture;
+  this.copyMaterial.blending = THREE.NoBlending;
+  this._renderPass(r, this.copyMaterial, this.renderToScreen ? null : writeBuffer);
+  this.blendMaterial.uniforms.intensity.value = this.blendIntensity;
+  this.blendMaterial.uniforms.tDiffuse.value = this.pdRenderTarget.texture;
+  this._renderPass(r, this.blendMaterial, this.renderToScreen ? null : writeBuffer);
+};
 // Things that must not shade: see-through glass, light shafts, the invisible shadow-only shell,
 // and things that give off light (flames, bulbs: they glow, so nothing darkens them or around them).
 const gtaoHide = gtao._overrideVisibility.bind(gtao);
@@ -128,8 +145,11 @@ function frontFaceShadows() {
   });
 }
 function chooseStyle(name) {
+  batcher.clear();      // v12: un-merge, re-dress in the new style, merge again
   sampler.set(name);
+  batcher.build();
   frontFaceShadows();
+  renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true;  // new materials and shapes: draw shadows and shading again
   styleSel.value = sampler.name;
   try { localStorage.setItem('objectsleuth.style', sampler.name); } catch (e) { /* ignore */ }
 }
@@ -147,25 +167,42 @@ try {
   setMiniature(localStorage.getItem('objectsleuth.mini') === '1');
 } catch (e) { chooseStyle('lowpoly'); }
 
-// ---------- LIGHT LAB (test feature): realism switches, each can be turned on/off to compare ----------
-const LAB_STORE = 'objectsleuth.lab';
-const lab = { ao: true, soft: true, fire: true }; // all on by default
-try { Object.assign(lab, JSON.parse(localStorage.getItem(LAB_STORE) || '{}')); } catch (e) { /* ignore */ }
-const labButtons = { ao: $('lab-ao'), soft: $('lab-soft'), fire: $('lab-fire') };
-function setLab(key, on) {
+// ---------- QUALITY presets (v12; replaces the Light Lab switches) ----------
+// Contact shading stays on in every preset (JM's top priority, OS-15: 1.1.1). What changes:
+//   ao   = share of screen resolution contact shading is worked out at
+//   soft = graded sun shadows · fire = fireplace shadows · pr = sharpness cap · idle = frames/s when the view is still
+const RETINA = window.devicePixelRatio > 1.25;
+const QUALITY = {
+  auto: { label: 'Auto', ao: RETINA ? 0.5 : 0.75, soft: true, fire: false, pr: 1.5, idle: 24, adaptive: true },
+  high: { label: 'High', ao: RETINA ? 0.5 : 1, soft: true, fire: true, pr: 2, idle: 30 },
+  balanced: { label: 'Balanced', ao: RETINA ? 0.5 : 0.75, soft: true, fire: false, pr: 1.5, idle: 24 },
+  battery: { label: 'Battery Saver', ao: 0.5, soft: false, fire: false, pr: 1.25, idle: 15 },
+};
+const lab = { ao: true, soft: true, fire: false };
+function setLab(key, on) { // (also used by the test shortcuts ?ao= ?soft= ?fire=)
   lab[key] = on;
-  if (key === 'ao') gtao.enabled = on;
+  if (key === 'ao') { gtao.enabled = on; gtao.aoDirty = true; }
   if (key === 'soft') lighting.setSoftShadows(on && graded);
   if (key === 'fire') lighting.setFireShadows(on);
-  labButtons[key].classList.toggle('on', on);
-  labButtons[key].setAttribute('aria-pressed', String(on));
-  try { localStorage.setItem(LAB_STORE, JSON.stringify(lab)); } catch (e) { /* ignore */ }
 }
-Object.keys(labButtons).forEach((k) => {
-  setLab(k, !!lab[k]);
-  labButtons[k].addEventListener('click', () => setLab(k, !lab[k]));
-});
-if (!graded) labButtons.soft.disabled = true;
+let quality = QUALITY.auto, prNow = 1;
+const qualitySel = $('quality');
+Object.entries(QUALITY).forEach(([k, q]) => qualitySel.add(new Option('QUALITY: ' + q.label, k)));
+function setQuality(name) {
+  quality = QUALITY[name] || QUALITY.auto;
+  qualitySel.value = Object.keys(QUALITY).find((k) => QUALITY[k] === quality);
+  setLab('ao', true); setLab('soft', quality.soft); setLab('fire', quality.fire);
+  aoScale = quality.ao;
+  setSharpness(Math.min(window.devicePixelRatio, quality.pr));
+  try { localStorage.setItem('objectsleuth.quality', qualitySel.value); } catch (e) { /* ignore */ }
+}
+function setSharpness(pr) {
+  prNow = Math.max(0.6, Math.round(pr * 20) / 20);
+  renderer.setPixelRatio(prNow);
+  resize();
+}
+qualitySel.addEventListener('change', () => { setQuality(qualitySel.value); qualitySel.blur(); });
+try { setQuality(localStorage.getItem('objectsleuth.quality') || 'auto'); } catch (e) { setQuality('auto'); }
 
 // ---------- TEST CLOCK (test-only u.f.n.) ----------
 const tcRange = $('tc-range'), tcTime = $('tc-time'), tcPlay = $('tc-play'), tcLive = $('tc-live');
@@ -193,7 +230,8 @@ $('zoom-in').addEventListener('click', () => controls.zoomBy(2));
 $('zoom-out').addEventListener('click', () => controls.zoomBy(0.5));
 $('zoom-reset').addEventListener('click', () => controls.reset());
 const zoomLabel = $('zoom-label');
-controls.onChange = (c) => { zoomLabel.textContent = '×' + c.zoom.toFixed(1); };
+let lastMove = -1e9; // when the view last moved (rest mode, see the main loop)
+controls.onChange = (c) => { zoomLabel.textContent = '×' + c.zoom.toFixed(1); gtao.aoDirty = true; lastMove = performance.now(); };
 controls.apply();
 
 $('build').textContent = APP_VERSION + ' · ' + BUILD;
@@ -250,25 +288,52 @@ chalSel.addEventListener('change', () => {
   setTimeout(() => targets.newRound(), 30);
 });
 targets.newRound(params.get('round') ? Number(params.get('round')) : undefined);
-window.objectsleuth = { targets, camera, THREE, fx: study.fx }; // (for testing in the browser console)
+window.objectsleuth = { targets, camera, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab }; // (for testing in the browser console)
 
 // ---------- main loop ----------
+// ---------- main loop (v12: only the work that is needed) ----------
+//  • moving (pan, zoom, a find animation): full speed
+//  • still: the "rest" pace of the quality preset – just enough for the flames, pendulum and clock
+//  • shadows and contact shading are drawn again only when something that shapes them changed
+//  • Auto: if panning gets slow, the picture gets slightly less sharp (and sharper again when there's room)
 const fpsEl = $('fps');
-let last = performance.now(), frames = 0, acc = 0;
+let last = performance.now(), lastDraw = 0, frames = 0, acc = 0, cpu = 0, draws = 0;
+let moveFrames = 0, moveTime = 0, slow = 0, quick = 0;
 const start = last;
+renderer.info.autoReset = false;
 renderer.setAnimationLoop(() => {
   const now = performance.now();
+  const moving = now - lastMove < 400 || controls.pointers.size > 0 || targets.pops.length > 0;
+  if (!moving && now - lastDraw < 1000 / quality.idle - 2) return;       // resting: nothing new to show yet
   const dt = Math.min((now - last) / 1000, 0.1);
-  last = now;
+  last = now; lastDraw = now;
   const t = (now - start) / 1000;
   controls.update(dt);
   lighting.update(dt, t);
   study.animate(t, lighting.hours());
   targets.update(dt);
+  if (targets.changed) { targets.changed = false; renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true; }
+  if (lighting.shadowDirty) { lighting.shadowDirty = false; renderer.shadowMap.needsUpdate = true; }
+  const c0 = performance.now();
+  renderer.info.reset();
   if (miniature || lab.ao) composer.render(dt); else renderer.render(scene, camera);
+  cpu += performance.now() - c0;
+  draws = renderer.info.render.calls;
   frames++; acc += dt;
+  if (moving) { moveFrames++; moveTime += dt; }
   if (frames % 10 === 0) showTestClock();
-  if (acc >= 1) { fpsEl.textContent = Math.round(frames / acc) + ' fps'; frames = 0; acc = 0; }
+  if (acc >= 1) {
+    // the meter: frames per second · time to prepare a frame · drawing jobs · sharpness
+    fpsEl.textContent = `${Math.round(frames / acc)} fps · ${(cpu / frames).toFixed(1)} ms · ${draws} draws · ×${prNow.toFixed(2)}`;
+    if (quality.adaptive && moveTime > 0.5) {
+      const mfps = moveFrames / moveTime;
+      slow = mfps < 40 ? slow + 1 : 0;
+      quick = mfps > 57 ? quick + 1 : 0;
+      if (slow >= 2 && prNow > 0.75) { setSharpness(prNow - 0.15); slow = 0; }
+      if (quick >= 3 && prNow < Math.min(window.devicePixelRatio, quality.pr)) { setSharpness(Math.min(prNow + 0.1, window.devicePixelRatio, quality.pr)); quick = 0; }
+    }
+    frames = 0; acc = 0; cpu = 0; moveFrames = 0; moveTime = 0;
+  }
 });
 
 // ---------- offline support ----------

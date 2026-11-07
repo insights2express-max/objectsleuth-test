@@ -77,7 +77,8 @@ export class Targets {
   solids() {
     const list = [];
     this.root.traverse((o) => {
-      if (!o.isMesh || !o.visible || o.userData.target || o.userData.decor) return;
+      // (pieces hidden by batching still count: they are the exact shapes; the merged copies don't)
+      if (!o.isMesh || (!o.visible && !o.userData.batched) || o.userData.merged || o.userData.target || o.userData.decor) return;
       const m = o.material;
       if (m.transparent || m.colorWrite === false || m.isMeshBasicMaterial) return;
       list.push(o);
@@ -445,6 +446,15 @@ export class Targets {
         }
       }
       if (!form) form = this.placeLiteral(it, rnd, solids, taken, L);
+      if (!form) { // no spot met this level's cover rule: try the next easier rule rather than leave it out
+        const lvl = this.level;
+        for (const easier of ['med', 'low']) {
+          if (form || easier === lvl || (lvl === 'low')) continue;
+          this.level = easier;
+          form = this.placeLiteral(it, rnd, solids, taken, LEVELS[easier]);
+        }
+        this.level = lvl;
+      }
       it.form = form;
       if (form && form.at) taken.push(form.at);
     }
@@ -459,6 +469,7 @@ export class Targets {
       this.placeShadow(it, f);
     }
     this.root.updateMatrixWorld(true);
+    this.changed = true;                       // v12: shadows and contact shading need drawing again
     if (this.onChange) this.onChange(this);
   }
 
@@ -562,6 +573,7 @@ export class Targets {
   // Found: a glowing ring rises and grows towards the viewer while it fades; the object goes with it.
   update(dt) {
     for (const r of this.reliefs) if (r.material !== r.userData.host.material) r.material = r.userData.host.material; // follow art style
+    if (this.pops.length) this.changed = true;  // objects are moving: shadows and shading follow
     for (const pop of this.pops) {
       pop.t += dt;
       const k = Math.min(1, pop.t / 1.1), e = 1 - (1 - k) * (1 - k);

@@ -177,8 +177,7 @@ export class Lighting {
     f.castShadow = this.fireShadows && fire.level > 0.075;
     if (this.fireShadows || fire.level < 0.2) { // inside the firebox (embers glow from in there)
       f.position.copy(this.fireInside);
-      f.position.x += fire.flames * (0.04 * Math.sin(t * 7.3) + 0.02 * Math.sin(t * 17.9)); // flames move, shadows dance
-      f.position.y += fire.flames * 0.03 * Math.sin(t * 11.1 + 0.7) - (1 - fire.flames) * 0.25; // embers: low, on the grate
+      f.position.y -= (1 - fire.flames) * 0.25;  // embers: low, on the grate (no jitter: shadows are drawn once and reused, v12)
     } else {
       f.position.copy(this.fireOutside);
     }
@@ -187,6 +186,15 @@ export class Lighting {
     b.intensity = bounceOn ? c.fireI * fire.level * fire.flicker * 0.3 : 0;
     b.castShadow = bounceOn;
     b.visible = bounceOn;
+    // v12: shadows are drawn once and reused. Ask for a redraw only when something that shapes them
+    // changes: the sun has moved ~0.3°, a light's position moved, or a light starts/stops casting.
+    const sig = [f.castShadow, b.castShadow, this.sun.shadow.mapSize.x].join();
+    if (!this._sunAt || this._sunAt.angleTo(c.toSun) > 0.005 || !this._fireAt || this._fireAt.distanceTo(f.position) > 0.02 || sig !== this._shadowSig) {
+      this._sunAt = c.toSun.clone();
+      this._fireAt = f.position.clone();
+      this._shadowSig = sig;
+      this.shadowDirty = true;
+    }
     fx.lamps.forEach((l) => { l.light.intensity = l.base * c.lampI; });
     // candles: a faint, flickering glow that only shows as the room gets dark
     (fx.candleLights || []).forEach((l, i) => { l.intensity = 0.45 * c.lampI * (0.85 + 0.1 * Math.sin(t * 11 + i * 2) + 0.05 * Math.sin(t * 27 + i)); });

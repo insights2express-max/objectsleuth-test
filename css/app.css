@@ -203,3 +203,5 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 }
 #findbar select { font: inherit; font-size: 14px; min-height: 40px; padding: 0 8px; border-radius: 10px; border: 0; background: rgba(255,255,255,0.12); color: inherit; }
 #findbar select option { color: #1b1f2a; }
+#lightlab select { font: inherit; font-size: 15px; min-height: 44px; padding: 0 10px; border-radius: 10px; border: 0; background: rgba(255,255,255,0.12); color: inherit; }
+#lightlab select option { color: #1b1f2a; }

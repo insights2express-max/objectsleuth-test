@@ -50,6 +50,8 @@ export function buildStudy() {
   bookStack(r, books, 2.75, 0, 1.45, 5);
   root.add(makeBooks(books));
   seatIntoRoom(root);
+  // things that move: never merged into the big batched pieces (art/batch.js)
+  for (const o of [clock.pend, clock.minute, clock.hour, globe.ball, ...fx.fireFlames, ...fx.flames, ...fx.embers]) o.userData.dynamic = true;
 
   return {
     root,

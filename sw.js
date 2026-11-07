@@ -1,6 +1,6 @@
 // ObjectSleuth service worker: stores every app file on the device so the game runs 100% offline.
 // IMPORTANT: change VERSION whenever any app file changes. That makes devices download the new files.
-const VERSION = 'v11'; // = APP_VERSION in js/main.js (one number per published build)
+const VERSION = 'v12'; // = APP_VERSION in js/main.js (one number per published build)
 const CACHE = 'objectsleuth-' + VERSION;
 
 const FILES = [
@@ -20,12 +20,14 @@ const FILES = [
   './js/scene/softshadows.js',
   './js/game/targets.js',
   './js/game/objects.js',
+  './js/art/batch.js',
   './vendor/three/three.module.js',
   './vendor/three/three.core.js',
   './vendor/three/addons/geometries/RoundedBoxGeometry.js',
   './vendor/three/addons/math/SimplexNoise.js',
   './vendor/three/addons/postprocessing/EffectComposer.js',
   './vendor/three/addons/postprocessing/GTAOPass.js',
+  './vendor/three/addons/utils/BufferGeometryUtils.js',
   './vendor/three/addons/postprocessing/MaskPass.js',
   './vendor/three/addons/postprocessing/OutputPass.js',
   './vendor/three/addons/postprocessing/Pass.js',

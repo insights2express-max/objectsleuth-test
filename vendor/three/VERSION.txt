@@ -8,3 +8,4 @@ Files: build/three.module.js, build/three.core.js, LICENSE (MIT)
 Add-ons (same verified 0.186.1 tarball): RoundedBoxGeometry, EffectComposer, RenderPass, ShaderPass, OutputPass, Pass, MaskPass,
 CopyShader, OutputShader, Horizontal/VerticalTiltShiftShader; + (M1.4, hash re-checked 2026-11-06) GTAOPass, GTAOShader,
 PoissonDenoiseShader, SimplexNoise.
++ (v12, hash re-checked 2026-11-07) BufferGeometryUtils.
