@@ -287,12 +287,23 @@ function uniformsFor(style) {
   }
   return skinUniforms[style];
 }
+// Same skin at another size (small imported objects need finer stitches / fibres): only the
+// pattern size and relief change; textures are shared.
+function scaledUniforms(style, k) {
+  if (k === 1) return uniformsFor(style);
+  const key = style + "@" + k.toFixed(3);
+  if (!skinUniforms[key]) {
+    const u = uniformsFor(style);
+    skinUniforms[key] = { ...u, uTile: { value: u.uTile.value * k }, uBump: { value: u.uBump.value * k } };
+  }
+  return skinUniforms[key];
+}
 
-function makeMaterial(orig, style) {
+function makeMaterial(orig, style, k = 1) {
   const S = STYLES[style];
   if (S.skin) {
     const m = makeBase(orig, style);
-    addSkin(m, style, uniformsFor(style));
+    addSkin(m, style, scaledUniforms(style, k));
     return m;
   }
   const m = makeBase(orig, style);
@@ -324,7 +335,9 @@ function makeBase(orig, style) {
 
 export class StyleSampler {
   // keep: materials the lighting animates (lamp shades, bulbs, window glass) – left as they are.
-  constructor(root, keep = []) {
+  // opts.scale: pattern size factor in the meshes' own units (1 = room-sized pieces)
+  constructor(root, keep = [], opts = {}) {
+    this.scale = opts.scale ?? 1;
     this.root = root;
     this.keep = new Set(keep);
     this.meshes = [];
@@ -343,7 +356,7 @@ export class StyleSampler {
   material(orig, style) {
     if (!this.restylable(orig)) return orig;
     const key = orig.uuid + style;
-    if (!this.mats.has(key)) this.mats.set(key, makeMaterial(orig, style));
+    if (!this.mats.has(key)) this.mats.set(key, makeMaterial(orig, style, STYLES[style].skin && style !== 'clay' ? this.scale : 1));
     return this.mats.get(key);
   }
 

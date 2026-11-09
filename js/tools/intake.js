@@ -1,6 +1,6 @@
 // ASSET INTAKE (test page, RFI OS-27 pilot): shows every imported model from assets/models on a
 // desk under game-like light, so JM can judge them by eye before they enter the game.
-//   Look     Original (the file as made) · Clay (our Clay skin over soft colour zones) · Low-poly (reduced + flat)
+//   Look     Original (the file as made) · Clay / Felt / Knit (our skins over soft colour zones) · Low-poly (reduced + flat)
 //   Detail   Full · Lite (≤ LITE_TRIS triangles per model – the in-game budget)
 //   Shuffle  new random rest pose / lean / side, turn, size and colour per model – proves the
 //            "one asset, many looks" variation the game will use.
@@ -13,6 +13,8 @@ import { ASSET_DEFS } from '../game/assetlib.js';
 
 const LITE_TRIS = 3000, LOWPOLY_TRIS = 700;
 const TABLE_Y = 0.75;
+const DESK_W = 2.7, DESK_D = 1.6;            // big enough for ~42 models
+const COLS = 7, GAP_X = 0.36, GAP_Z = 0.25;  // grid on the desk
 
 // ---------------------------------------------------------------- renderer, scene, camera
 const canvas = document.getElementById('stage');
@@ -68,17 +70,18 @@ const woodTex = (() => { // soft wood grain, drawn once
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 2); t.anisotropy = 8;
   return t;
 })();
-const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.04, 0.85), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.55 }));
+const deskTop = new THREE.Mesh(new THREE.BoxGeometry(DESK_W, 0.04, DESK_D), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.55 }));
 deskTop.position.y = TABLE_Y - 0.02; deskTop.receiveShadow = true; deskTop.castShadow = true;
 scene.add(deskTop);
-for (const [x, z] of [[-0.85, -0.38], [0.85, -0.38], [-0.85, 0.38], [0.85, 0.38]]) {
+const LX = DESK_W / 2 - 0.05, LZ = DESK_D / 2 - 0.05;
+for (const [x, z] of [[-LX, -LZ], [LX, -LZ], [-LX, LZ], [LX, LZ]]) {
   const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, TABLE_Y - 0.04, 0.06), deskTop.material);
   leg.position.set(x, (TABLE_Y - 0.04) / 2, z); leg.castShadow = true; scene.add(leg);
 }
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.MeshStandardMaterial({ color: 0x3b2a1e, roughness: 0.8 }));
 floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 const wall = new THREE.Mesh(new THREE.PlaneGeometry(12, 5), new THREE.MeshStandardMaterial({ color: 0x6f6152, roughness: 0.95 }));
-wall.position.set(0, 2.5, -1.2); wall.receiveShadow = true; scene.add(wall);
+wall.position.set(0, 2.5, -DESK_D / 2 - 0.4); wall.receiveShadow = true; scene.add(wall);
 
 // Light: "Day" = low sun through a window + sky fill · "Lamp" = warm desk lamp at night.
 const hemi = new THREE.HemisphereLight(0xfff0dc, 0x3a2a1e, 0.55);
@@ -88,7 +91,7 @@ sun.position.set(-1.7, TABLE_Y + 1.9, 1.3);
 sun.target.position.set(0, TABLE_Y, 0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -1.1, right: 1.1, top: 0.8, bottom: -0.8, near: 0.5, far: 6 });
+Object.assign(sun.shadow.camera, { left: -1.7, right: 1.7, top: 1.3, bottom: -1.3, near: 0.5, far: 7 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.002; sun.shadow.radius = 3;
 scene.add(sun, sun.target);
 const lamp = new THREE.PointLight(0xffc27a, 1.6, 3.5, 2);
@@ -203,16 +206,27 @@ async function loadItem(def, i) {
   const dims = new THREE.Box3().setFromObject(base).getSize(new THREE.Vector3());
   // file size: the model file plus every file it points to (bin + textures), asked from the server
   const bytes = await sizeOf(url, gltf.parser.json);
-  const col = i % 5, row = Math.floor(i / 5);
+  const col = i % COLS, row = Math.floor(i / COLS), rows = Math.ceil(ASSET_DEFS.length / COLS);
   const holder = new THREE.Group();   // place on the desk
   const pivot = new THREE.Group();    // pose, turn, size
   holder.add(pivot);
-  holder.position.set(-0.64 + col * 0.32, TABLE_Y, -0.24 + row * 0.24);
+  holder.position.set((col - (COLS - 1) / 2) * GAP_X, TABLE_Y, (row - (rows - 1) / 2) * GAP_Z);
   holder.userData.item = i;
   scene.add(holder);
   const item = { def, base, holder, pivot, variants: {}, tint: { value: new THREE.Vector3(0, 1, 1) }, fullTris: trisOf(base), dims, bytes, current: null };
   items[i] = item;
   return item;
+}
+
+// Felt fibres / knit stitches sized for the object: room-sized pieces use the full pattern,
+// small objects a finer one (down to 0.3×). Converted into the meshes' own file units.
+function patternScale(item, g) {
+  const L = Math.max(item.dims.x, item.dims.y, item.dims.z);
+  const k = Math.min(1, Math.max(0.3, L / 0.5));
+  g.updateMatrixWorld(true);
+  let s = 0, n = 0; const v = new THREE.Vector3();
+  g.traverse((o) => { if (o.isMesh) { o.getWorldScale(v); s += (v.x + v.y + v.z) / 3; n++; } });
+  return k / (n ? s / n : 1);
 }
 
 async function variantOf(item, look, detail) {
@@ -228,7 +242,7 @@ async function variantOf(item, look, detail) {
     if (!mats.has(m)) mats.set(m, look === 'original' ? m.clone() : plainMaterial(m, look));
     o.material = mats.get(m);
   });
-  if (look === 'clay') new StyleSampler(g).set('clay');
+  if (look === 'clay' || look === 'felt' || look === 'knit') new StyleSampler(g, [], { scale: patternScale(item, g) }).set(look);
   g.traverse((o) => { if (o.isMesh) addTint(o.material, item.tint); });
   item.variants[key] = { group: g, tris: trisOf(g) };
   return item.variants[key];
@@ -287,7 +301,7 @@ function placeCamera() {
   camera.lookAt(view.target);
   redraw();
 }
-function home() { view.target.set(0, TABLE_Y, 0); view.dist = 1.9 * Math.max(1, 1.5 / camera.aspect); view.theta = 0; view.phi = 0.95; placeCamera(); }
+function home() { view.target.set(0, TABLE_Y, 0); view.dist = 3.4 * Math.max(1, 1.9 / camera.aspect); view.theta = 0; view.phi = 0.95; placeCamera(); }
 function focus(i) {
   const it = items[i]; if (!it || it.error) return;
   const box = new THREE.Box3().setFromObject(it.pivot);
@@ -358,7 +372,8 @@ function buildRows() {
     const row = document.createElement('div');
     row.className = 'row'; row.dataset.i = i;
     row.innerHTML = `<div class="t"><span class="n"></span><span class="v"><button class="keep" title="Keep">✓</button><button class="drop" title="Drop">✗</button></span></div><div class="m"></div>`;
-    row.querySelector('.n').textContent = def.name;
+    row.querySelector('.n').textContent = def.word;
+    row.querySelector('.n').title = def.name;
     row.addEventListener('click', (e) => { if (!e.target.closest('button')) focus(i); });
     row.querySelector('.keep').addEventListener('click', () => { verdicts[def.id] = verdicts[def.id] === 'keep' ? undefined : 'keep'; saveVerdicts(); updateRows(); });
     row.querySelector('.drop').addEventListener('click', () => { verdicts[def.id] = verdicts[def.id] === 'drop' ? undefined : 'drop'; saveVerdicts(); updateRows(); });
@@ -375,11 +390,11 @@ function updateRows() {
     if (it && it.error) { m.innerHTML = ''; const s = document.createElement('span'); s.className = 'err'; s.textContent = 'Failed to load: ' + it.error; m.appendChild(s); return; }
     const size = it ? `${cm(it.dims.x)} × ${cm(it.dims.z)} × ${cm(it.dims.y)} cm` : '…';
     const tris = it ? (it.curTris && it.curTris !== it.fullTris ? `${it.fullTris.toLocaleString()} → ${it.curTris.toLocaleString()}` : it.fullTris.toLocaleString()) + ' triangles' : '';
-    m.textContent = `${def.source} · ${def.author} · ${def.license} · ${def.kind}\n${size} · ${tris} · ${fmtKB(it && it.bytes)}`;
+    m.textContent = `${def.name} · ${def.kind}\n${def.source} · ${def.author} · ${def.license}\n${size} · ${tris} · ${fmtKB(it && it.bytes)}`;
     m.style.whiteSpace = 'pre-line';
   });
-  const keep = ASSET_DEFS.filter((d) => verdicts[d.id] === 'keep').map((d) => d.name);
-  const drop = ASSET_DEFS.filter((d) => verdicts[d.id] === 'drop').map((d) => d.name);
+  const keep = ASSET_DEFS.filter((d) => verdicts[d.id] === 'keep').map((d) => d.word);
+  const drop = ASSET_DEFS.filter((d) => verdicts[d.id] === 'drop').map((d) => d.word);
   document.getElementById('summary').value = `KEEP (${keep.length}): ${keep.join(', ') || '–'}\nDROP (${drop.length}): ${drop.join(', ') || '–'}`;
 }
 document.getElementById('copy').addEventListener('click', async () => {
