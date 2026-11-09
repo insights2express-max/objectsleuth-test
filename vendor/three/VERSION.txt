@@ -9,3 +9,9 @@ Add-ons (same verified 0.186.1 tarball): RoundedBoxGeometry, EffectComposer, Ren
 CopyShader, OutputShader, Horizontal/VerticalTiltShiftShader; + (M1.4, hash re-checked 2026-11-06) GTAOPass, GTAOShader,
 PoissonDenoiseShader, SimplexNoise.
 + (v12, hash re-checked 2026-11-07) BufferGeometryUtils.
++ (2026-11-09, asset pilot OS-27: 3.4.2, same verified 0.186.1 tarball, sha512 re-checked) GLTFLoader + its helper SkeletonUtils,
+SimplifyModifier + its helper libs/meshopt_simplifier.module.js.
+131c0f78c01d19368ae495caa65b3adaa10487810a36a05bb5901b769a35ac16 *addons/loaders/GLTFLoader.js
+d1e1482576667e0fe7a3e69779861b69ce52ed308eae68f2cdca78a52334ce64 *addons/modifiers/SimplifyModifier.js
+b1632a703206c3d830de9fcbe515696770d04b71a15ee6b50afa6d2c3298c86f *addons/utils/SkeletonUtils.js
+614402ffac05c8a40711f0d9a5d9a904dadc3ee2e7ed56d4568751dbd7fc8c35 *addons/libs/meshopt_simplifier.module.js

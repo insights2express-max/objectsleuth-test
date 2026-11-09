@@ -70,7 +70,9 @@ self.addEventListener('fetch', (event) => {
     caches.open(CACHE).then((cache) =>
       cache.match(req, { ignoreSearch: true }).then((hit) => {
         if (hit) return hit;
-        if (req.mode === 'navigate') return cache.match('./index.html');
+        // A page that isn't stored (e.g. the Asset Intake test page) loads from the network;
+        // only when offline does it fall back to the game.
+        if (req.mode === 'navigate') return fetch(req).catch(() => cache.match('./index.html'));
         return fetch(req);
       })
     )

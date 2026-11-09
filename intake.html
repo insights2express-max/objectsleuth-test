@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ObjectSleuth · Asset Intake (test)</title>
+  <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
+  <style>
+    :root { --bg: #1d1915; --panel: rgba(28, 23, 19, 0.88); --ink: #f2e9dc; --dim: #b5a796; --gold: #e0b866; --line: rgba(255, 255, 255, 0.12); --ok: #7fc48a; --no: #e07a6a; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+    #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    #bar { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top)); background: var(--panel); border-bottom: 1px solid var(--line); z-index: 2; }
+    #bar h1 { margin: 0; font-size: 15px; font-weight: 600; }
+    #bar h1 span { color: var(--gold); }
+    #bar h1 em { font-style: normal; font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 9px; padding: 1px 7px; margin-left: 6px; }
+    .grp { display: flex; align-items: center; gap: 4px; }
+    .grp > b { font-weight: 500; color: var(--dim); font-size: 12px; margin-right: 2px; }
+    button { font: inherit; font-size: 13px; color: var(--ink); background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; min-height: 32px; }
+    button.on { background: var(--gold); color: #241a0e; border-color: var(--gold); }
+    button:disabled { opacity: 0.45; cursor: default; }
+    #stats { margin-left: auto; font-size: 12px; color: var(--dim); }
+    #list { position: fixed; right: 0; bottom: 0; width: min(360px, 92vw); background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; z-index: 1; padding: 8px 10px 14px; }
+    #list.closed { transform: translateX(calc(100% - 26px)); }
+    #fold { position: absolute; left: 2px; top: 6px; min-height: 0; padding: 2px 6px; font-size: 14px; }
+    #list h2 { font-size: 13px; margin: 2px 0 8px 26px; color: var(--dim); font-weight: 500; }
+    .row { border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; margin-bottom: 6px; cursor: pointer; }
+    .row.sel { border-color: var(--gold); background: rgba(224, 184, 102, 0.1); }
+    .row .t { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .row .n { font-weight: 600; }
+    .row .m { font-size: 12px; color: var(--dim); margin-top: 2px; }
+    .row .v { display: flex; gap: 4px; }
+    .row .v button { min-height: 28px; padding: 2px 9px; }
+    .row .v button.keep.on { background: var(--ok); border-color: var(--ok); color: #10200f; }
+    .row .v button.drop.on { background: var(--no); border-color: var(--no); color: #2a0f0a; }
+    .row .err { color: var(--no); font-size: 12px; }
+    #summary { width: 100%; min-height: 64px; margin-top: 6px; background: rgba(0, 0, 0, 0.25); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; padding: 6px; resize: vertical; }
+    #status { position: fixed; left: 12px; bottom: 12px; font-size: 12px; color: var(--dim); background: var(--panel); border-radius: 8px; padding: 4px 9px; z-index: 1; }
+    #help { position: fixed; left: 12px; bottom: 44px; max-width: min(420px, 60vw); font-size: 12px; color: var(--dim); background: var(--panel); border-radius: 8px; padding: 6px 9px; z-index: 1; }
+    @media (max-width: 700px) { #help { display: none; } #list { width: 92vw; max-height: 45vh; top: auto !important; } }
+  </style>
+</head>
+<body>
+  <canvas id="stage" aria-label="Asset Intake table"></canvas>
+  <header id="bar">
+    <h1>Object<span>Sleuth</span> · Asset Intake <em>test only</em></h1>
+    <div class="grp" data-grp="look"><b>Look</b><button data-v="original" class="on">Original</button><button data-v="clay">Clay</button><button data-v="lowpoly">Low-poly</button></div>
+    <div class="grp" data-grp="detail"><b>Detail</b><button data-v="full" class="on">Full</button><button data-v="lite">Lite</button></div>
+    <div class="grp" data-grp="light"><b>Light</b><button data-v="day" class="on">Day</button><button data-v="lamp">Lamp</button></div>
+    <div class="grp" data-grp="refl"><b>Reflections</b><button data-v="on" class="on">On</button><button data-v="off">Off</button></div>
+    <div class="grp"><button id="shuffle">🎲 Shuffle</button><button id="reset">Reset</button><button id="home">Whole table</button></div>
+    <div id="stats"></div>
+  </header>
+  <aside id="list"><button id="fold" title="Fold / unfold">▸</button><h2>15 models · tap a row to zoom in · ✓ keep / ✗ drop</h2><div id="rows"></div>
+    <textarea id="summary" readonly aria-label="Your verdicts"></textarea><button id="copy">Copy verdicts</button></aside>
+  <div id="help">Drag = turn · pinch / wheel = zoom · two fingers = move · tap an object = zoom to it.<br>🎲 Shuffle = new random position, angle, size and colour for every model.</div>
+  <div id="status">Loading…</div>
+  <script type="module" src="./js/tools/intake.js"></script>
+</body>
+</html>
