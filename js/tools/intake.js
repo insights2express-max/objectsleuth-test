@@ -13,8 +13,9 @@ import { ASSET_DEFS } from '../game/assetlib.js';
 
 const LITE_TRIS = 3000, LOWPOLY_TRIS = 700;
 const TABLE_Y = 0.75;
-const DESK_W = 2.7, DESK_D = 1.6;            // big enough for ~42 models
-const COLS = 7, GAP_X = 0.36, GAP_Z = 0.25;  // grid on the desk
+const DESK_W = 5.3, DESK_D = 3.4;            // v16: big enough for ~180 models
+const COLS = 14, GAP_X = 0.36, GAP_Z = 0.25; // grid on the desk
+const FIT_W = 0.3, FIT_H = 0.45;             // v16: furniture and other big models are SHOWN scaled down to fit a cell (sizes listed stay real)
 
 // ---------------------------------------------------------------- renderer, scene, camera
 const canvas = document.getElementById('stage');
@@ -211,6 +212,7 @@ async function loadItem(def, i) {
   const pivot = new THREE.Group();    // pose, turn, size
   holder.add(pivot);
   holder.position.set((col - (COLS - 1) / 2) * GAP_X, TABLE_Y, (row - (rows - 1) / 2) * GAP_Z);
+  holder.scale.setScalar(Math.min(1, FIT_W / Math.max(dims.x, dims.z), FIT_H / dims.y));
   holder.userData.item = i;
   scene.add(holder);
   const item = { def, base, holder, pivot, variants: {}, tint: { value: new THREE.Vector3(0, 1, 1) }, fullTris: trisOf(base), dims, bytes, current: null };
@@ -388,13 +390,14 @@ function updateRows() {
     row.querySelector('.drop').classList.toggle('on', verdicts[def.id] === 'drop');
     const m = row.querySelector('.m');
     if (it && it.error) { m.innerHTML = ''; const s = document.createElement('span'); s.className = 'err'; s.textContent = 'Failed to load: ' + it.error; m.appendChild(s); return; }
-    const size = it ? `${cm(it.dims.x)} × ${cm(it.dims.z)} × ${cm(it.dims.y)} cm` : '…';
+    const shown = it && it.holder.scale.x < 0.999 ? ` (shown at ${Math.round(it.holder.scale.x * 100)}%)` : '';
+    const size = it ? `${cm(it.dims.x)} × ${cm(it.dims.z)} × ${cm(it.dims.y)} cm${shown}` : '…';
     const tris = it ? (it.curTris && it.curTris !== it.fullTris ? `${it.fullTris.toLocaleString()} → ${it.curTris.toLocaleString()}` : it.fullTris.toLocaleString()) + ' triangles' : '';
     m.textContent = `${def.name} · ${def.kind}\n${def.source} · ${def.author} · ${def.license}\n${size} · ${tris} · ${fmtKB(it && it.bytes)}`;
     m.style.whiteSpace = 'pre-line';
   });
-  const keep = ASSET_DEFS.filter((d) => verdicts[d.id] === 'keep').map((d) => d.word);
-  const drop = ASSET_DEFS.filter((d) => verdicts[d.id] === 'drop').map((d) => d.word);
+  const keep = ASSET_DEFS.filter((d) => verdicts[d.id] === 'keep').map((d) => `${d.word} [${d.id.replace(/^ph-/, "")}]`);
+  const drop = ASSET_DEFS.filter((d) => verdicts[d.id] === 'drop').map((d) => `${d.word} [${d.id.replace(/^ph-/, "")}]`);
   document.getElementById('summary').value = `KEEP (${keep.length}): ${keep.join(', ') || '–'}\nDROP (${drop.length}): ${drop.join(', ') || '–'}`;
 }
 document.getElementById('copy').addEventListener('click', async () => {

@@ -4,6 +4,7 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { mat, glow, mesh, box, cyl, group, canvasTex } from '../art/kit.js';
 import { rng, range, pick } from '../core/random.js';
+import { makePicture } from './wallart.js';
 
 const C = {
   floorA: 0x8a5a3b, floorB: 0x7f5236, floorC: 0x93613e, slab: 0x3f2a1d,
@@ -32,34 +33,53 @@ export function buildStudy() {
   // can cut it away: Diorama hides front + right + ceiling, Stage hides the front, Walk-in shows all.
   root.add(buildFrontWall(fx), buildRightWall(fx), buildCeiling(fx));
   root.add(buildBackdrops(fx));
-  root.add(buildFireplace(r, fx));
-  // hostKind: what a piece of furniture is, so embossed Target Objects go somewhere that makes sense (TO v3)
+  // hostKind: what a piece of furniture is – where things may stand (v16 display spots) and where
+  // embossed Target Objects make sense (TO v3)
   const tag = (o, kind) => { o.userData.hostKind = kind; return o; };
-  root.add(tag(buildBookcase(r, books, -2.3, { level: 2, keep: 0.55, ornament: 'vase' }), 'bookcase'));
-  root.add(tag(buildBookcase(r, books, 2.3, { level: 3, keep: 0.5, ornament: 'hourglass' }), 'bookcase'));
+  root.add(tag(buildFireplace(r, fx), 'fireplace'));
+  // (v16: the coded ornaments – vase, box, hourglass, mantel candles/clock/vase, sideboard vase and photo –
+  // are gone; imported collectibles stand there instead, different each Scene Instance)
+  root.add(tag(buildBookcase(r, books, -2.3, { level: 2, keep: 0.55 }), 'bookcase'));
+  root.add(tag(buildBookcase(r, books, 2.3, { level: 3, keep: 0.5 }), 'bookcase'));
   const clock = buildClock();
   clock.group.position.set(-3.62, 0, -2.745);                       // back clear of the wall panelling
   tag(clock.group, 'clock');
   root.add(clock.group);
   root.add(buildRug(fx, r));
-  root.add(tag(group([buildDesk(r, fx, books)], 1.5, 0, 0.0), 'desk'));
-  root.add(group([buildDeskChair(fx)], 1.5, 0, 0.85, Math.PI));
-  root.add(group([buildArmchair(fx)], -3.3, 0, 0.8, Math.PI / 2));     // back clear of the window sill
-  root.add(group([buildSideTable(r, books)], -3.4, 0, 2.15));
+  const desk = buildDesk(r, fx);
+  root.add(tag(group([desk], 1.5, 0, 0.0), 'desk'));
+  root.add(tag(group([buildDeskChair(fx)], 1.5, 0, 0.85, Math.PI), 'seat'));
+  const sideTable = tag(group([buildSideTable()], -3.4, 0, 2.15), 'table');
+  fx.sideTable = sideTable;
+  root.add(sideTable);
   root.add(group([buildFloorLamp(fx)], -3.55, 0, -0.6));
   const globe = buildGlobe(r);
   globe.group.position.set(3.45, 0, -1.7);
-  // SOCKET: a small object (the key) may rest on top of the globe, just off the meridian ring (OS-19: 5.4.1)
+  // SOCKET: a small object may rest on top of the globe, just off the meridian ring (OS-19: 5.4.1)
   fx.sockets.push({ kind: 'globe-top', parent: globe.group, pos: new THREE.Vector3(0, 1.272, 0.07), out: new THREE.Vector3(0, 1, 0), flat: true });
   root.add(globe.group);
-  root.add(group([buildPlant(r)], 3.4, 0, 2.4));
   root.add(tag(group([buildChest(fx)], -1.3, 0, 2.3, 0.12), 'chest'));
   root.add(group([buildFireTools()], 1.3, 0, -2.4));
   root.add(group([buildLogBasket()], -1.43, 0, -2.36, 0.2));     // clear of the hearth
   bookStack(r, books, 2.75, 0, 1.45, 5);
-  root.add(tag(buildSideboard(r, books), 'chest'));
+  root.add(tag(buildSideboard(), 'sideboard'));
   fx.books = makeBooks(books);
   root.add(fx.books);
+  // v16 (OS-31): imported furniture – the Victorian armchair replaces the coded one; small antique tables
+  // and a chair beside the desk and armchair hold collectibles. Fixed pieces, only nudged each round.
+  fx.bgSpots = [
+    { id: 'ph-ArmChair_01', p: [-3.3, 0, 0.8], ry: Math.PI / 2, kind: 'seat' },
+    { id: 'ph-chinese_tea_table', p: [-2.32, 0, 0.88], ry: 0.05, kind: 'table' },
+    { id: 'ph-side_table_tall_01', p: [0.2, 0, 0.02], ry: 0, kind: 'table' },
+    { id: 'ph-painted_wooden_chair_01', p: [-2.45, 0, -1.92], ry: 0.25, kind: 'seat' },
+    // wall art (OS-25: 8) in imported frames, pictures drawn in code: insects, stamps (may hold a Target
+    // Object as a stamp) and a photograph on the sideboard
+    { id: 'ph-fancy_picture_frame_01', p: [-3.982, 1.45, -2.47], ry: Math.PI / 2, kind: 'frame', picture: 'insects', fixed: true },
+    { id: 'ph-hanging_picture_frame_02', p: [-3.98, 1.38, 2.47], ry: Math.PI / 2, kind: 'frame', picture: 'stamps', fixed: true },
+    { id: 'ph-standing_picture_frame_02', p: [1.78, 0.82, 2.8], ry: Math.PI, kind: 'frame', picture: 'photo', fixed: true },
+  ];
+  fx.plantSpots = { 'ph-potted_plant_02': [3.4, 0, 2.38], 'ph-potted_plant_01': [2.62, 0, 2.5] };   // OS-31: imported houseplants
+  fx.makePicture = (kind, group) => makePicture(fx, kind, group);
   seatIntoRoom(root);
   fx.globeBall = globe.ball;
   // things that move: never merged into the big batched pieces (art/batch.js)
@@ -73,19 +93,14 @@ export function buildStudy() {
   fx.cutMeshes = [];
   root.traverse((o) => { if (o.isMesh && o.userData.cutTag) fx.cutMeshes.push(o); });
 
-  // ---- v15 DECOR VARIATION per Scene Instance (M2): fabrics and book colours change every round
-  const FABRICS = [[0x3f6b4f, 0x2e5039], [0x8c2f2f, 0x6c2222], [0x2f4a6b, 0x22364f], [0x9a7a3a, 0x7a5e2a], [0x6b4a32, 0x4f3524], [0x5a3a5e, 0x432a46]];
-  const setMat = (o, m) => { if (o.userData.orig) o.userData.orig.m = m; else o.material = m; };
+  // ---- v16 LIVED-IN VARIATION per Scene Instance (OS-25: 3.3.1, OS-31: 3.2): the same room after a day's
+  // use – never re-coloured furniture. A new desk assortment (books, papers, inkwell + quill), the side
+  // table nudged, the door open at a different angle (sometimes shut, OS-26: 6.1).
   fx.decorate = (rnd) => {
-    const n = FABRICS.length, a = Math.floor(rnd() * n), c = (a + 1 + Math.floor(rnd() * (n - 1))) % n, k = Math.floor(rnd() * n);
-    fx.fabric.main.forEach((o) => setMat(o, mat(FABRICS[a][0], { rough: 0.86 })));
-    fx.fabric.dark.forEach((o) => setMat(o, mat(FABRICS[a][1], { rough: 0.86 })));
-    fx.fabric.cushion.forEach((o) => setMat(o, mat(FABRICS[k][0], { rough: 0.87 })));
-    fx.fabric.curtain.forEach((o) => setMat(o, mat(FABRICS[c][0], { rough: 0.88 })));
-    fx.fabric.curtainDark.forEach((o) => setMat(o, mat(FABRICS[c][1], { rough: 0.88 })));
-    const col = new THREE.Color();
-    for (let i = 0; i < fx.books.count; i++) fx.books.setColorAt(i, col.setHex(BOOK_COLORS[Math.floor(rnd() * BOOK_COLORS.length)]));
-    fx.books.instanceColor.needsUpdate = true;
+    arrangeDesk(fx.desk, rnd);
+    fx.sideTable.position.set(-3.4 + (rnd() - 0.5) * 0.08, 0, 2.15 + (rnd() - 0.5) * 0.08);
+    fx.sideTable.rotation.y = (rnd() - 0.5) * 0.6;
+    fx.door.pivot.rotation.y = rnd() < 0.3 ? 0 : -(0.25 + rnd() * 1.15);
   };
 
   return {
@@ -185,10 +200,11 @@ function buildWalls(fx) {
   const g = new THREE.Group();
   const H = 3.2;
   // back wall, built around a tall narrow window opening (x 3.3..3.9, y 0.9..2.6)
-  const bw = (x0, x1, y0, y1) => g.add(box(x1 - x0, y1 - y0, 0.2, C.wall, (x0 + x1) / 2, y0, -3.1));
+  const wf = (o) => { o.userData.wallFace = true; return o; };     // v16: things may hang on it
+  const bw = (x0, x1, y0, y1) => g.add(wf(box(x1 - x0, y1 - y0, 0.2, C.wall, (x0 + x1) / 2, y0, -3.1)));
   bw(-4.2, 3.3, 0, H); bw(3.9, 4.0, 0, H); bw(3.3, 3.9, 0, 0.9); bw(3.3, 3.9, 2.6, H);
   // left wall, built around a window opening (z 0..1.6, y 0.9..2.6)
-  const lw = (z0, z1, y0, y1) => g.add(box(0.2, y1 - y0, z1 - z0, C.wall, -4.1, y0, (z0 + z1) / 2));
+  const lw = (z0, z1, y0, y1) => g.add(wf(box(0.2, y1 - y0, z1 - z0, C.wall, -4.1, y0, (z0 + z1) / 2)));
   lw(-3.0, 0.0, 0, H); lw(1.6, 3.0, 0, H); lw(0.0, 1.6, 0, 0.9); lw(0.0, 1.6, 2.6, H);
   // cut-away caps on top of the walls (the classic diorama look)
   const capB = box(8.2, 0.02, 0.2, C.cap, -0.1, H, -3.1), capL = box(0.2, 0.02, 6, C.cap, -4.1, H, 0);
@@ -258,9 +274,11 @@ function buildWalls(fx) {
     m.raycast = () => {}; // never catches taps
     g.add(m);
   };
-  shell(0.2, H + 0.6, 6.6, 4.2, -0.3, 0);      // right side
-  shell(8.6, H + 0.6, 0.2, 0, -0.3, 3.2);       // front side
-  shell(8.6, 0.1, 6.6, 0, H + 0.05, 0);         // ceiling
+  // v16 (OS-25: 1.2.1): the shell now overlaps the walls' tops and ends (no gap for light to creep
+  // through at the wall / ceiling joints and the open corners)
+  shell(2.3, H + 0.65, 6.7, 5.15, -0.3, 0);     // right side (x 4.0..6.3 – also keeps the sun out of the hallway)
+  shell(8.7, H + 0.65, 0.3, 0, -0.3, 3.15);     // front side (z 3.0..3.3)
+  shell(8.7, 0.17, 6.7, 0, H - 0.05, 0);        // ceiling (y 3.15..3.32, over the wall tops)
   // curtains, rod and finials
   // v14 (OS-19: 1.7.1): the curtains end just above the sill (top 0.945), so closed they would fall
   // onto nothing – and can hang right beside the window frame again
@@ -335,7 +353,9 @@ function buildFrontWall() {
   const g = new THREE.Group();
   g.userData.cut = 'front';
   const H = 3.2, z = 3.0;
-  g.add(noShadow(box(8.2, H + 0.3, 0.2, C.wall, -0.1, -0.3, z + 0.1)));           // x −4.2..4.0
+  const fw = noShadow(box(8.2, H + 0.3, 0.2, C.wall, -0.1, -0.3, z + 0.1));         // x −4.2..4.0
+  fw.userData.wallFace = true;
+  g.add(fw);
   // panelling (stops at the sideboard, x 0.4..2.0; starts after the left wall's rail – no overlaps)
   for (const [x0, x1] of [[-3.928, 0.36], [2.04, 4.0]]) g.add(noShadow(box(x1 - x0, 0.9, 0.03, C.wainscot, (x0 + x1) / 2, 0, z - 0.015)));
   g.add(noShadow(box(7.922, 0.05, 0.07, C.rail, 0.037, 0.88, z - 0.035)));         // chair rail (x −3.924..3.998: ends never flush with the panelling)
@@ -349,20 +369,40 @@ function buildFrontWall() {
   g.add(pic);
   return g;
 }
-function buildRightWall() {
+function buildRightWall(fx) {
   const g = new THREE.Group();
   g.userData.cut = 'right';
   const H = 3.2, x = 4.0;
-  g.add(noShadow(box(0.2, H + 0.3, 6.4, C.wall, x + 0.1, -0.3, 0)));               // z −3.2..3.2
-  // a closed panelled door (z −0.05..0.85) in a cream architrave
-  const door = box(0.04, 2.2, 0.9, C.wood, x - 0.02, 0, 0.4);
-  g.add(noShadow(door));
-  for (const [y, h] of [[0.15, 0.8], [1.1, 0.85]]) for (const zc of [0.18, 0.62]) g.add(noShadow(box(0.012, h, 0.32, C.woodLight, x - 0.045, y, zc)));
-  const knob = mesh(new THREE.SphereGeometry(0.032, 10, 8), mat(C.brass, { rough: 0.35, metal: 0.5 }), false);
-  knob.position.set(x - 0.075, 1.0, 0.76);
-  g.add(knob);
-  g.add(noShadow(cyl(0.012, 0.012, 0.035, 8, mat(C.brass, { rough: 0.35, metal: 0.5 }), x - 0.05, 0.985, 0.76)));   // (stem, behind the knob)
-  g.children.at(-1).rotation.z = Math.PI / 2;
+  // v16 (OS-25: 3.3.1): the wall has a real door opening (z −0.05..0.85, up to 2.2 m); the door swings
+  // into the room to a different angle each Scene Instance (sometimes shut), showing a hallway beyond
+  const ww = (z0, z1, y0, y1) => { const o = noShadow(box(0.2, y1 - y0, z1 - z0, C.wall, x + 0.1, y0, (z0 + z1) / 2)); o.userData.wallFace = true; g.add(o); };
+  ww(-3.2, -0.05, -0.3, H); ww(0.85, 3.2, -0.3, H); ww(-0.05, 0.85, 2.2, H);
+  const pivot = new THREE.Group();
+  pivot.position.set(x - 0.02, 0, -0.05);                                            // hinge side
+  const door = box(0.04, 2.19, 0.895, C.wood, 0, 0.005, 0.45);
+  pivot.add(noShadow(door));
+  for (const [y, h] of [[0.15, 0.8], [1.1, 0.85]]) for (const zc of [0.23, 0.67]) pivot.add(noShadow(box(0.012, h, 0.32, C.woodLight, -0.025, y, zc)));
+  for (const zc of [0.23, 0.67]) for (const [y, h] of [[0.15, 0.8], [1.1, 0.85]]) pivot.add(noShadow(box(0.012, h, 0.32, C.woodLight, 0.025, y, zc)));   // hallway side too
+  const brassM = mat(C.brass, { rough: 0.35, metal: 0.5 });
+  for (const s of [-1, 1]) {
+    const knob = mesh(new THREE.SphereGeometry(0.032, 10, 8), brassM, false);
+    knob.position.set(s * 0.055, 1.0, 0.81);
+    pivot.add(knob);
+    const stem = noShadow(cyl(0.012, 0.012, 0.035, 8, brassM, s * 0.03, 0.985, 0.81));
+    stem.rotation.z = Math.PI / 2;
+    pivot.add(stem);
+  }
+  g.add(pivot);
+  fx.door = { pivot };
+  // the hallway: floor, far wall with a picture rail, side walls, ceiling (seen only through the door)
+  const hall = new THREE.Group();
+  hall.add(noShadow(box(2.0, 0.3, 2.2, C.floorB, x + 1.0, -0.302, 0.4)));          // (2 mm below the room's floor: no flush faces)
+  const hw = (w, h, d, px, py, pz) => hall.add(noShadow(box(w, h, d, 0xc9b48f, px, py, pz)));
+  hw(0.1, 2.9, 2.2, x + 2.05, 0, 0.4); hw(1.8, 2.9, 0.1, x + 1.1, 0, -0.75); hw(1.8, 2.9, 0.1, x + 1.1, 0, 1.55);
+  hall.add(noShadow(box(1.8, 0.1, 2.2, 0xefe6d4, x + 1.1, 2.9, 0.4)));
+  hall.add(noShadow(box(0.03, 0.9, 2.18, C.wainscot, x + 1.985, 0, 0.4)));
+  hall.add(noShadow(box(0.05, 0.6, 0.8, C.brass, x + 1.97, 1.35, 0.3)));               // a picture in the hall
+  g.add(hall);
   for (const zc of [-0.09, 0.89]) g.add(noShadow(box(0.05, 2.2, 0.08, C.cream, x - 0.025, 0, zc)));
   g.add(noShadow(box(0.05, 0.08, 1.06, C.cream, x - 0.025, 2.2, 0.4)));
   // panelling and rails, either side of the door (starts after the back wall's rail – no overlaps)
@@ -376,7 +416,7 @@ function buildRightWall() {
 function buildCeiling(fx) {
   const g = new THREE.Group();
   g.userData.cut = 'ceiling';
-  g.add(noShadow(box(8.4, 0.12, 6.4, 0xefe6d4, 0, 3.2, 0)));
+  g.add(noShadow(box(8.4, 0.15, 6.4, 0xefe6d4, 0, 3.17, 0)));   // v16: 3 cm into the wall tops (no light line at the joints, OS-25: 1.2.1)
   g.add(noShadow(cyl(0.36, 0.36, 0.025, 20, C.cap, 0, 3.175, 0)));                  // ceiling rose
   // the overhead light: a large enclosed dome (glows when 💡 Overhead is on)
   g.add(noShadow(cyl(0.2, 0.2, 0.03, 16, mat(C.brass, { rough: 0.35, metal: 0.5 }), 0, 3.145, 0)));
@@ -448,7 +488,7 @@ function drawSeascape(c, w, h) {
 }
 
 // Sideboard against the front wall (a long, low cabinet; things stand on it and lean against it)
-function buildSideboard(r, books) {
+function buildSideboard() {
   const g = new THREE.Group();
   const x = 1.2, zb = 3.0;                       // centre x, the wall behind
   g.add(box(1.52, 0.1, 0.42, C.woodDark, x, 0, zb - 0.21));          // plinth
@@ -460,9 +500,7 @@ function buildSideboard(r, books) {
     k.position.set(x + s * 0.06, 0.5, zb - 0.482);
     g.add(k);
   }
-  g.add(lathe([[0, 0], [0.09, 0], [0.13, 0.05], [0.15, 0.09], [0.14, 0.095], [0.12, 0.06], [0, 0.03]], C.blueGlaze, x - 0.5, 0.82, zb - 0.27));
-  g.add(box(0.18, 0.22, 0.02, C.brass, x + 0.55, 0.82, zb - 0.12));   // a framed photograph (on its own stand)
-  bookStack(r, books, x + 0.1, 0.82, zb - 0.26, 2);
+  // (v16: the coded bowl, photo and books are gone – collectibles and an imported photo frame stand here)
   return g;
 }
 
@@ -471,6 +509,7 @@ function buildFireplace(r, fx) {
   const g = new THREE.Group();
   const zf = -3.0; // face of the back wall
   g.add(box(1.7, 3.2 - 1.24, 0.25, C.plaster, 0, 1.24, zf + 0.125)); // chimney breast
+  g.children.at(-1).userData.wallFace = true;                         // v16: the weapons display hangs here
   g.add(box(0.38, 0.92, 0.42, C.stone, -0.72, 0, zf + 0.21));
   g.add(box(0.38, 0.92, 0.42, C.stone, 0.72, 0, zf + 0.21));
   g.add(box(1.82, 0.24, 0.42, C.stone, 0, 0.92, zf + 0.21));
@@ -508,19 +547,8 @@ function buildFireplace(r, fx) {
   fx.fireLight.position.set(0, 0.55, zf + 0.7);
   fx.bounceLight = new THREE.PointLight(0xff9a55, 0, 3.0, 2);
   fx.bounceLight.visible = false;
-  // mantel ornaments: unlit candles in candlesticks (OS-18: 1.4), small clock, vase
-  for (const x of [-0.88, 0.88]) {
-    g.add(cyl(0.05, 0.06, 0.04, 8, C.brass, x, 1.24, zf + 0.36));
-    g.add(cyl(0.015, 0.02, 0.12, 6, C.brass, x, 1.28, zf + 0.36));
-    g.add(cyl(0.028, 0.028, 0.2, 8, C.cream, x, 1.4, zf + 0.36));
-    g.add(cyl(0.002, 0.002, 0.014, 4, C.soot, x, 1.6, zf + 0.36));   // the black wick
-  }
-  g.add(box(0.22, 0.2, 0.12, C.woodDark, 0.4, 1.24, zf + 0.33));   // (all mantel items stand in front of the chimney breast)
-  const face = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.01, 12), C.cream, false);
-  face.rotation.x = Math.PI / 2;
-  face.position.set(0.4, 1.35, zf + 0.395);
-  g.add(face);
-  g.add(lathe([[0, 0], [0.05, 0], [0.07, 0.05], [0.045, 0.15], [0.03, 0.2], [0.045, 0.24]], C.blueGlaze, -0.42, 1.24, zf + 0.36));
+  // (v16: the coded mantel candles, clock and vase are gone – imported candlesticks, mantel clock, vases
+  // and other collectibles stand on the mantel, varied like every Target / Passive Object – OS-26: 4.2)
   // painting above the mantel
   g.add(box(1.12, 0.8, 0.05, C.brass, 0, 1.5, zf + 0.275));     // frame clear of the mantel clock (no flicker)
   const land = painting(768, 516, drawLandscape, [[0.05, 0.95, 0.74, 0.96]]); // the foreground hills
@@ -552,7 +580,7 @@ function buildBookcase(r, books, cx, opt) {
     if (i === opt.level) {
       end = xa + (xb - xa) * opt.keep;
       const ox = (end + xb) / 2;
-      if (opt.ornament === 'vase') {
+      if (!opt.ornament) { /* v16: the space is left free for collectibles */ } else if (opt.ornament === 'vase') {
         g.add(lathe([[0, 0], [0.07, 0], [0.1, 0.08], [0.07, 0.22], [0.045, 0.3], [0.06, 0.34]], C.blueGlaze, ox - 0.1, y, z0 + 0.2));
         g.add(box(0.14, 0.09, 0.1, C.woodLight, ox + 0.17, y, z0 + 0.22));
       } else {
@@ -767,7 +795,7 @@ function buildRug(fx, r) {
   return rug;
 }
 
-function buildDesk(r, fx, books) {
+function buildDesk(r, fx) {
   const g = new THREE.Group();
   const W = 1.8, D = 0.85, H = 0.78, front = (D - 0.08) / 2;
   g.add(box(W, 0.06, D, C.woodDark, 0, H - 0.06, 0));
@@ -786,25 +814,35 @@ function buildDesk(r, fx, books) {
   const leather = box(1.1, 0.005, 0.5, C.green, 0, H, 0.08);
   leather.castShadow = false;
   g.add(leather);
-  [[-0.1, 0.12, 0.3], [0.05, 0.1, -0.15], [0.2, 0.2, 0.1]].forEach(([x, z, ry]) => {
-    const p = box(0.21, 0.004, 0.29, C.paper, x, H + 0.006, z);
-    p.rotation.y = ry;
+  // v16 DESK ASSORTMENT (OS-31: 3.2, OS-30: 4.6.2): papers, books / magazines, the open book and the
+  // inkwell + quill are re-arranged for every Scene Instance (arrangeDesk) – more, fewer or none, in a
+  // different order, place and turn; some cells always stay free for tech and accessories.
+  const papers = [];
+  for (let i = 0; i < 5; i++) {
+    const p = box(0.21, 0.003, 0.29, i % 2 ? 0xf2ecdc : C.paper, 0, 0, 0);
     p.castShadow = false;
-    g.add(p);
-  });
-  // inkwell (squat glass pot with a neck) and a quill dipped in it
-  g.add(cyl(0.032, 0.04, 0.045, 10, C.ink, -0.45, H, -0.18));
-  g.add(cyl(0.018, 0.024, 0.014, 10, C.ink, -0.45, H + 0.045, -0.18));
-  g.add(cyl(0.021, 0.021, 0.005, 10, C.brass, -0.45, H + 0.059, -0.18));
-  g.add(buildQuill(-0.45, H + 0.062, -0.18));
-  // open book (two pages tilted up)
-  for (const s of [-1, 1]) {
-    const pg = box(0.16, 0.012, 0.22, C.paper, -0.22 + s * 0.08, H + 0.005, 0.18);
-    pg.rotation.z = s * -0.1;
-    g.add(pg);
+    papers.push(p); g.add(p);
   }
-  bookStack(r, books, -0.72, H, -0.22, 3);
-  for (const b of books.slice(-3)) { b.x += 1.5; } // desk sits at x = 1.5 (books are in room coordinates)
+  const ink = new THREE.Group();   // inkwell (squat glass pot with a neck) and a quill dipped in it
+  ink.add(cyl(0.032, 0.04, 0.045, 10, C.ink, 0, 0, 0));
+  ink.add(cyl(0.018, 0.024, 0.014, 10, C.ink, 0, 0.045, 0));
+  ink.add(cyl(0.021, 0.021, 0.005, 10, C.brass, 0, 0.059, 0));
+  ink.add(buildQuill(0, 0.062, 0));
+  g.add(ink);
+  const openBook = new THREE.Group(); // open book (two pages tilted up)
+  for (const s of [-1, 1]) {
+    const pg = box(0.16, 0.012, 0.22, C.paper, s * 0.08, 0, 0);
+    pg.rotation.z = s * -0.1;
+    openBook.add(pg);
+  }
+  g.add(openBook);
+  // books and magazines: their own small set (different books each time – sizes and covers)
+  const deskBooks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, flatShading: true }), 8);
+  deskBooks.castShadow = deskBooks.receiveShadow = true;
+  deskBooks.setColorAt(0, new THREE.Color());
+  g.add(deskBooks);
+  fx.desk = { H, papers, ink, openBook, books: deskBooks };
+  arrangeDesk(fx.desk, rng(77));
   // banker's lamp
   const lamp = new THREE.Group();
   lamp.position.set(0.62, H, -0.2);
@@ -828,6 +866,57 @@ function buildDesk(r, fx, books) {
   fx.bulbMats.push(bulbMat);
   fx.shadeMats.push(shadeMat);
   return g;
+}
+
+// The desktop is a grid of 6 × 3 cells (the lamp's cell stays its own). Each item takes free cells at
+// random: inkwell + quill 1, open book 2, 0–2 piles of books/magazines, 0–5 papers (which may overlap
+// each other and other things' edges, a little higher each, never flush). ≥ 4 cells stay free.
+function arrangeDesk(d, rnd) {
+  const H = d.H, COLS = 6, ROWS = 3, cw = 1.62 / COLS, ch = 0.72 / ROWS;
+  const cellXZ = (c) => [-0.81 + cw * ((c % COLS) + 0.5), -0.36 + ch * (Math.floor(c / COLS) + 0.5)];
+  const free = [...Array(COLS * ROWS).keys()].filter((c) => c !== 4 && c !== 5);   // (the banker's lamp: back row, right)
+  const take = () => free.splice(Math.floor(rnd() * free.length), 1)[0];
+  const jit = (v, k) => v + (rnd() - 0.5) * k;
+  // inkwell + quill
+  const ic = cellXZ(take());
+  d.ink.position.set(jit(ic[0], cw * 0.4), H, jit(ic[1], ch * 0.3));
+  d.ink.rotation.y = rnd() * Math.PI * 2;
+  // open book: sometimes put away
+  const showOpen = rnd() < 0.65;
+  d.openBook.visible = showOpen; d.openBook.userData.off = !showOpen;
+  d.openBook.traverse((o) => { o.userData.off = !showOpen; });
+  if (showOpen) { const c = cellXZ(take()); d.openBook.position.set(jit(c[0], 0.04), H + 0.006, jit(c[1], 0.04)); d.openBook.rotation.y = (rnd() - 0.5) * 1.2; }
+  // books and magazines: 0–2 piles, 1–4 each (magazines are thin and wide)
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+  let n = 0;
+  const piles = Math.floor(rnd() * 3);
+  for (let p = 0; p < piles && free.length > 4; p++) {
+    const c = cellXZ(take()), cnt = 1 + Math.floor(rnd() * 4), turn = (rnd() - 0.5) * 1.4;
+    let y = H;
+    for (let k = 0; k < cnt && n < 8; k++, n++) {
+      const mag = rnd() < 0.35, th = mag ? 0.006 + rnd() * 0.004 : 0.03 + rnd() * 0.035;
+      const w = mag ? 0.21 + rnd() * 0.04 : 0.15 + rnd() * 0.12, dd = mag ? 0.28 : 0.11 + rnd() * 0.1;
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), turn + (rnd() - 0.5) * 0.5);
+      m.compose(new THREE.Vector3(jit(c[0], 0.03), y + th / 2 + 0.0005, jit(c[1], 0.03)), q, new THREE.Vector3(w, th, dd));
+      d.books.setMatrixAt(n, m);
+      d.books.setColorAt(n, col.setHex(mag ? [0xd8cfb8, 0xb84a3a, 0x3a5a8a, 0xe0c060][Math.floor(rnd() * 4)] : BOOK_COLORS[Math.floor(rnd() * BOOK_COLORS.length)]));
+      y += th + 0.0008;
+    }
+  }
+  d.books.count = n;
+  d.books.instanceMatrix.needsUpdate = true;
+  if (d.books.instanceColor) d.books.instanceColor.needsUpdate = true;
+  d.books.visible = n > 0;
+  // loose papers, singly or overlapping, each a little higher (no flush faces)
+  const np = Math.floor(rnd() * 6);
+  d.papers.forEach((p, i) => {
+    const on = i < np;
+    p.visible = on; p.userData.off = !on;
+    if (!on) return;
+    const c = cellXZ(free.length > 4 && rnd() < 0.6 ? free[Math.floor(rnd() * free.length)] : Math.floor(rnd() * COLS * ROWS));
+    p.position.set(jit(c[0], cw * 0.5), H + 0.0065 + i * 0.0016, jit(c[1], ch * 0.4));
+    p.rotation.y = rnd() * Math.PI;
+  });
 }
 
 function buildDeskChair(fx) {
@@ -856,7 +945,7 @@ function buildArmchair(fx) {
   return g;
 }
 
-function buildSideTable(r, books) {
+function buildSideTable() {
   const g = new THREE.Group();
   g.add(cyl(0.2, 0.22, 0.03, 10, C.woodDark));
   g.add(cyl(0.035, 0.045, 0.56, 6, C.wood, 0, 0.03, 0));
@@ -866,7 +955,6 @@ function buildSideTable(r, books) {
   const handle = mesh(new THREE.TorusGeometry(0.018, 0.005, 4, 8), C.cream, false);
   handle.position.set(0.135, 0.66, 0.06);
   g.add(handle);
-  bookStack(r, books, -3.4 - 0.08, 0.62, 2.15 - 0.06, 1); // a book on the table (room coordinates)
   return g;
 }
 
@@ -1158,7 +1246,7 @@ function hourglass(x, y, z) {
 // ---------------------------------------------------------------- paintings (repaintable)
 // A painting can have a Target Object painted into it (a "nested" target, SDD 9.02.2).
 // render(extra) repaints the picture, then lets extra(ctx, w, h) paint something into it.
-function painting(w, h, base, regions) {
+export function painting(w, h, base, regions) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const tex = new THREE.CanvasTexture(c);
@@ -1209,7 +1297,7 @@ function drawStillLife(c, w, h) {
 
 // Short, faint strokes in random directions, so a painting reads as brushwork (and anything
 // painted into it later gets the same treatment).
-function brushTexture(c, w, h, seed) {
+export function brushTexture(c, w, h, seed) {
   const r = rng(seed);
   c.save();
   c.globalAlpha = 0.06;

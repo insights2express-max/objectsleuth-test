@@ -13,14 +13,18 @@ import { HorizontalTiltShiftShader } from '../vendor/three/addons/shaders/Horizo
 import { VerticalTiltShiftShader } from '../vendor/three/addons/shaders/VerticalTiltShiftShader.js';
 import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
 import { installGradedShadows } from './scene/softshadows.js';
-import { Targets, LEVELS } from './game/targets.js';
+import { Targets, LEVELS, LIST_ROWS } from './game/targets.js';
+import { Library, MODEL_CACHE, modelUrl } from './game/library.js';
+import { Session, store } from './game/session.js';
 import { StaticBatcher } from './art/batch.js';
 import { rng } from './core/random.js';
 
 // VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
 // with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
-const APP_VERSION = 'v15.1';
+const APP_VERSION = 'v16';
 const BUILD = 'Draft 1';
+// v16 LOOKS (OS-31: 2.1): Clay (default), Low-poly, Felt, Knit – the Original photo look is gone (OS-30: 2.1)
+const LOOKS = ['clay', 'lowpoly', 'felt', 'knit'];
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -55,8 +59,10 @@ let controls = ortho;                     // the controls of the current view
 
 // ---------- STYLE SAMPLER (test feature) ----------
 const fx = study.fx;
-// Target Objects are added before the style sampler, so they take on each art style too.
-const targets = new Targets(study.root, study.fx, VIEW_DIR);
+// v16: the room's own pieces get the look from this sampler; imported models each carry their own
+// (library.js), so they can be loaded and dropped per round.
+const library = new Library();
+const targets = new Targets(study.root, study.fx, VIEW_DIR, library);
 const batcher = new StaticBatcher(study.root);
 const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, ...fx.windowMats, fx.overheadMat]);
 
@@ -175,6 +181,8 @@ function setCut(tags) {
     if (!o.userData.batched) o.visible = !hide;
   }
   for (const m of batcher.merged) if (m.userData.cutTag) m.visible = !cutNow.has(m.userData.cutTag);
+  // v16: things hung on a cut-away wall go with it (found ones stay hidden)
+  for (const it of targets.items) if (it.group.userData.cutTag && !(it.role === 'to' && targets.resolved(it))) it.group.visible = !cutNow.has(it.group.userData.cutTag);
   gtao.aoDirty = true;
 }
 // merge the fixed pieces again (after a style change or a new round), then re-apply the view's cut
@@ -236,7 +244,7 @@ function toast(text) {
 
 // ---------- STYLE SAMPLER buttons ----------
 const styleSel = $('style'), miniBtn = $('mini');
-Object.entries(STYLES).filter(([, s]) => !s.parked).forEach(([key, s]) => styleSel.add(new Option(s.label, key)));
+LOOKS.forEach((key) => { styleSel.add(new Option(STYLES[key].label, key)); $('set-look').add(new Option(STYLES[key].label, key)); });
 // Shadows are measured from the FRONT (lit) faces of solid objects. Measuring from back faces (the
 // three.js default) let light creep a few millimetres past every joint – the thin glowing lines
 // where the hearth meets the floor and the pillars meet the hearth (OS-12 follow-up).
@@ -246,10 +254,13 @@ function frontFaceShadows() {
   });
 }
 function chooseStyle(name) {
+  if (!LOOKS.includes(name)) name = 'clay';
   batcher.clear();      // v12: un-merge, re-dress in the new style, merge again
   sampler.set(name);
+  library.setLook(name);
   rebatch();
   styleSel.value = sampler.name;
+  if ($('set-look')) $('set-look').value = sampler.name;
   if (typeof updatePills === 'function') try { updatePills(); } catch (e) { /* (not ready yet) */ }
   try { localStorage.setItem('objectsleuth.style', sampler.name); } catch (e) { /* ignore */ }
 }
@@ -262,11 +273,15 @@ function setMiniature(on) {
 }
 styleSel.addEventListener('change', () => { chooseStyle(styleSel.value); styleSel.blur(); });
 miniBtn.addEventListener('click', () => setMiniature(!miniature));
+$('set-look').addEventListener('change', () => chooseStyle($('set-look').value));
 try {
-  sampler.set(localStorage.getItem('objectsleuth.style') || 'lowpoly');   // (merged once the first round is laid out)
+  const look = localStorage.getItem('objectsleuth.style');
+  sampler.set(LOOKS.includes(look) ? look : 'clay');   // (merged once the first round is laid out)
   styleSel.value = sampler.name;
   setMiniature(localStorage.getItem('objectsleuth.mini') === '1');
-} catch (e) { sampler.set('lowpoly'); }
+} catch (e) { sampler.set('clay'); }
+library.look = sampler.name;
+$('set-look').value = sampler.name;
 
 // ---------- QUALITY presets (v12; replaces the Light Lab switches) ----------
 // Contact shading stays on in every preset (JM's top priority, OS-15: 1.1.1). What changes:
@@ -282,17 +297,23 @@ const QUALITY = {
 const lab = { ao: true, soft: true, fire: false };
 function setLab(key, on) { // (also used by the test shortcuts ?ao= ?soft= ?fire=)
   lab[key] = on;
-  if (key === 'ao') { gtao.enabled = on; gtao.aoDirty = true; }
-  if (key === 'soft') lighting.setSoftShadows(on && graded);
+  if (key === 'ao') { gtao.enabled = on; gtao.aoDirty = true; $('set-ao').checked = on; }
+  if (key === 'soft') { lighting.setSoftShadows(on && graded); $('set-soft').checked = on; }
   if (key === 'fire') lighting.setFireShadows(on);
 }
+// M5 Settings: the Light Lab effects as player options (OS-7: 3) – remembered on the device
+$('set-ao').addEventListener('change', () => { setLab('ao', $('set-ao').checked); store.set('lab', { ao: lab.ao, soft: lab.soft }); });
+$('set-soft').addEventListener('change', () => { setLab('soft', $('set-soft').checked); store.set('lab', { ao: lab.ao, soft: lab.soft }); });
 let quality = QUALITY.auto, prNow = 1;
 const qualitySel = $('quality');
-Object.entries(QUALITY).forEach(([k, q]) => qualitySel.add(new Option('QUALITY: ' + q.label, k)));
+Object.entries(QUALITY).forEach(([k, q]) => { qualitySel.add(new Option('QUALITY: ' + q.label, k)); $('set-quality').add(new Option(q.label, k)); });
+$('set-quality').addEventListener('change', () => setQuality($('set-quality').value));
 function setQuality(name) {
   quality = QUALITY[name] || QUALITY.auto;
   qualitySel.value = Object.keys(QUALITY).find((k) => QUALITY[k] === quality);
-  setLab('ao', true); setLab('soft', quality.soft); setLab('fire', quality.fire);
+  $('set-quality').value = qualitySel.value;
+  const saved = store.get('lab', null);
+  setLab('ao', saved ? saved.ao : true); setLab('soft', saved ? saved.soft && quality.soft : quality.soft); setLab('fire', quality.fire);
   aoScale = quality.ao;
   setSharpness(Math.min(window.devicePixelRatio, quality.pr));
   if (typeof updatePills === 'function') try { updatePills(); } catch (e) { /* (not ready yet) */ }
@@ -357,29 +378,34 @@ for (const k of ['ao', 'soft', 'fire']) if (params.get(k)) setLab(k, params.get(
 // Modes: 'side' (one column, anywhere left/right) · 'top' / 'bottom' (docked to that edge, 2 rows of 3).
 // Dragging the title bar near the top or bottom edge docks it there; dragging it back into the
 // middle of the screen makes it a side panel again (OS-20: 1.2, 1.5.3).
-const panel = $('findpanel'), findList = $('findlist'), findMsg = $('findmsg');
+const panel = $('findpanel'), findList = $('findlist');
 const fpHead = $('fp-head'), fpToggle = $('fp-toggle'), grips = [$('fp-grip-l'), $('fp-grip-r')];
+// v16 ROLLING LIST (OS-27): 15 Target Objects per round, the first 6 unresolved ones listed; a found one
+// stays a moment (ticked), then the next rolls in. No text above the list, no Congratulations box (OS-25: 4.1.1).
+const leaving = new Map();                 // item → time it was resolved (its row lingers 1.4 s)
 targets.onChange = (tg) => {
+  const now = performance.now();
+  for (const it of tg.list) if (tg.resolved(it) && !leaving.has(it) && it.wasShown) leaving.set(it, now);
+  const rows = tg.list.filter((it) => it.shown || (leaving.has(it) && now - leaving.get(it) < 1400));
   findList.innerHTML = '';
-  tg.list.forEach((it, i) => {
+  rows.slice(0, LIST_ROWS + 1).forEach((it) => {
     const li = document.createElement('li');
-    li.dataset.i = i;
-    li.className = it.found ? 'found' : it.revealed ? 'revealed' : it.ringed ? 'ringed' : '';
+    li.dataset.i = tg.list.indexOf(it);
+    li.className = (it.found ? 'found done' : it.revealed ? 'revealed done' : it.ringed ? 'ringed' : '') + (it.mode === 'silhouette' ? ' sil' : it.mode === 'scrambled' ? ' scr' : '');
     li.title = 'Double-tap: T.O. Zoom (hint) · double-tap again: T.O. Reveal';
-    li.innerHTML = `<span class="ico"><span>${it.icon}</span></span><span class="nm"></span><span class="st">${it.found ? 'FOUND' : it.revealed ? 'REVEALED' : it.ringed ? 'TAP IT' : ''}</span>`;
-    li.querySelector('.nm').textContent = it.name;
+    li.innerHTML = `<span class="ico${it.mode === 'silhouette' ? ' sil' : ''}"><span>${it.mode === 'silhouette' ? '' : '🔎'}</span></span><span class="nm"></span><span class="st">${it.found ? 'FOUND' : it.revealed ? 'REVEALED' : it.ringed ? 'TAP IT' : ''}</span>`;
+    if (it.mode === 'silhouette') li.querySelector('.ico > span').appendChild(tg.silhouette(it));
+    li.querySelector('.nm').textContent = it.mode === 'silhouette' ? '' : it.label || it.name;
     findList.appendChild(li);
+    if (it.shown) it.wasShown = true;
   });
+  if ([...leaving.values()].some((t) => now - t < 1400)) setTimeout(() => targets.onChange(targets), 1450);
   const total = tg.list.length, found = tg.list.filter((it) => it.found).length, rev = tg.list.filter((it) => it.revealed).length, done = found + rev;
   $('fp-done').textContent = `${found} / ${total}` + (rev ? ` · 👁️ ${rev}` : '');
   $('fp-count').textContent = `${done} / ${total}`;
   const bar = $('fp-bar');
   bar.style.width = `${(100 * done) / total}%`;
   bar.style.background = done ? `linear-gradient(90deg, var(--green) ${(100 * found) / done}%, #8d929b ${(100 * found) / done}%)` : '';
-  findMsg.textContent = done < total ? '' : rev
-    ? `CONGRATULATIONS…you've completed this Scene: ${found} found, ${rev} revealed. Restart to play again.`
-    : "CONGRATULATIONS…you've discovered all the Target Objects to complete this Scene! Restart to play again.";
-  findMsg.hidden = done !== total;
   layoutPanel();
 };
 // Where the panel is and how it is laid out. Remembered only within this Scene Instance.
@@ -418,13 +444,13 @@ function layoutPanel() {
   panel.style.maxHeight = `${Math.max(120, edge ? vh * 0.5 : vh - Math.max(top, fp.y) - 150)}px`;
   // docked at the bottom: stay clear of the Reveal + zoom buttons (bottom right) when there's room
   if (fp.mode === 'bottom' && !fp.collapsed) {
-    const bars = Math.max($('hintbar').offsetWidth, $('zoombar').offsetWidth) + 28;
+    const bars = $('bottombar').offsetWidth + 28;
     const room = vw - bars - 8;
     if (room >= MIN_W.edge) { fp.wEdge = Math.min(fp.wEdge, room); panel.style.width = `${fp.wEdge}px`; }
   }
   const r0 = panel.getBoundingClientRect();
-  const rightEdge = fp.mode === 'bottom' && !fp.collapsed && vw - Math.max($('hintbar').offsetWidth, $('zoombar').offsetWidth) - 28 - 8 >= r0.width
-    ? vw - Math.max($('hintbar').offsetWidth, $('zoombar').offsetWidth) - 28 : vw - 8;
+  const rightEdge = fp.mode === 'bottom' && !fp.collapsed && vw - $('bottombar').offsetWidth - 28 - 8 >= r0.width
+    ? vw - $('bottombar').offsetWidth - 28 : vw - 8;
   fp.x = clamp(fp.x, 8, Math.max(8, rightEdge - r0.width));
   if (fp.mode === 'top') fp.y = top;
   else if (fp.mode === 'bottom') fp.y = vh - r0.height - BOTTOM_GAP;
@@ -522,40 +548,103 @@ targets.pxAt = (p) => (camera === orthoCam ? ortho.pxAt() : look.pxAt(p));
 targets.towardCam = (p) => (camera === orthoCam ? targets.viewDir : perspCam.position.clone().sub(p).normalize());
 targets.camDist = (p) => (camera === orthoCam ? 60 : perspCam.position.distanceTo(p));
 targets.viewPx = () => Math.min(window.innerWidth, window.innerHeight);
-ortho.onTap = look.onTap = (cx, cy) => { targets.tap(screenToNdc(cx, cy), camera); };
-// REVEAL (SDD hint): rings unfound objects where they are, after zooming out to ×1; each ring stays
-// until that object is tapped (OS-21: 1.1)
+// a tap: a listed Target Object is found; a look-alike gets "Close, but not this one." (no points lost)
+ortho.onTap = look.onTap = (cx, cy) => {
+  if (!session.round || session.round.ended === 'time') return;
+  const r = targets.tap(screenToNdc(cx, cy), camera);
+  if (r && r.tease) session.tease();
+};
+// REVEAL (SDD hint): rings listed, unfound objects where they are, after zooming out to ×1; each ring
+// stays until that object is tapped (OS-21: 1.1). "Reveal List" = every listed one (OS-28: 1.1).
 $('reveal1').addEventListener('click', () => { controls.reset(); targets.reveal(1); });
 $('revealall').addEventListener('click', () => { controls.reset(); targets.reveal(Infinity); });
 
-// ---------- a new round (Scene Instance): new decor, new Target and Passive Objects ----------
-function newRound(seed = Math.floor(Math.random() * 1e9)) {
-  batcher.clear();
-  fx.decorate(rng(seed ^ 0x5eed));           // fabrics and book colours (v15, M2)
-  sampler.set(sampler.name);                  // dress the swapped fabrics in the current style
-  setCut(VIEWS.diorama.cut);                  // objects are hidden for the Diorama view (seen by every view)
-  targets.newRound(seed);
-  rebatch();
-  setCut(VIEWS[view].cut);
-  armed = null;
-}
-$('newround').addEventListener('click', () => {
-  findMsg.hidden = false; findMsg.textContent = 'Hiding…';
-  setTimeout(() => newRound(), 30); // let the note show before the (short) search
+// ---------- M3–M5: the game round ----------
+const session = new Session({
+  levels: LEVELS,
+  lighting: () => ({ preset: lighting.name, hours: lighting.hours() }),
+  view: () => view,
+  restart: (o) => startRound(o ? { ...o } : null),
 });
-// CHAL LVL: Low / Medium / High concealment
+targets.onFound = (it, how) => session.onFound(it, how);
+const busy = (on, title = 'Hiding the objects…', sub = '') => { $('busy').hidden = !on; $('busy-title').textContent = title; $('busy-sub').textContent = sub; };
+
+// ---------- a new round (Scene Instance): lived-in variation, new Target and Passive Objects ----------
+// opts: the Per Scene Options (null = ask, unless the player uses saved defaults); resume: a saved round
+let starting = false;
+async function startRound(opts = null, resume = null) {
+  if (starting) return;
+  starting = true;
+  try {
+    if (!opts) opts = await session.askOptions();
+    if (LEVELS[params.get('chal')] && !resume) opts.chal = params.get('chal');
+    opts.seed = opts.seed ?? (params.get('round') && !startRound.used ? Number(params.get('round')) : Math.floor(Math.random() * 1e9));
+    startRound.used = true;
+    targets.level = opts.chal;
+    chalSel.value = opts.chal;
+    // OS-25 (5.1): avoid the zones the last rounds' Target Objects used
+    targets.avoid = new Set(opts.avoid || store.get('zones', []));
+    opts.avoid = [...targets.avoid];
+    busy(true, 'Hiding the objects…', 'Loading models…');
+    await new Promise((r) => setTimeout(r, 30));      // (let the note show)
+    const picked = targets.pick(opts.seed, opts.chal);
+    const need = [...picked.bg, ...picked.tos, ...picked.pos];
+    const groups = await library.loadMany(need, (n, all) => { $('busy-sub').textContent = `Loading models ${n} / ${all}`; });
+    $('busy-sub').textContent = 'Finding hiding places…';
+    await new Promise((r) => setTimeout(r, 20));
+    batcher.clear();
+    fx.decorate(rng(opts.seed ^ 0x5eed));        // lived-in variation (desk, side table, door)
+    sampler.set(sampler.name);
+    setCut(VIEWS.diorama.cut);                   // objects are hidden for the Diorama view (seen by every view)
+    targets.place(opts.seed, picked, groups);
+    if (!resume) store.set('zones', [...targets.zonesUsed, ...[...targets.avoid].slice(0, 30)]);
+    rebatch();
+    setCut(VIEWS[view].cut);
+    armed = null;
+    leaving.clear();
+    if (resume) targets.restore(resume.found, resume.revealed);
+    session.begin(opts, targets, resume);
+    targets.onChange(targets);
+  } catch (e) {
+    console.error(e);
+    toast('Something went wrong while hiding: ' + (e.message || e));
+  } finally {
+    busy(false);
+    starting = false;
+    busyUntil = performance.now() + 800;
+  }
+}
+$('newround').addEventListener('click', () => startRound());
+// CHAL LVL: Low / Medium / High – also changeable inside the Scene (OS-33: 5.4.1): restarts the Scene
 const chalSel = $('chal');
 Object.entries(LEVELS).forEach(([k, v]) => chalSel.add(new Option('CHAL LVL: ' + v.label, k)));
-try { const c = localStorage.getItem('objectsleuth.chal'); if (LEVELS[c]) targets.level = c; } catch (e) { /* ignore */ }
-if (LEVELS[params.get('chal')]) targets.level = params.get('chal');
-chalSel.value = targets.level;
+chalSel.value = session.defaults.chal;
 chalSel.addEventListener('change', () => {
-  targets.level = chalSel.value;
-  try { localStorage.setItem('objectsleuth.chal', chalSel.value); } catch (e) { /* ignore */ }
   chalSel.blur();
-  findMsg.hidden = false; findMsg.textContent = 'Hiding…';
-  setTimeout(() => newRound(), 30);
+  const o = session.round ? { ...session.round.opts } : { ...session.defaults };
+  delete o.seed; delete o.avoid;
+  o.chal = chalSel.value;
+  startRound(o);
 });
+
+// background: the rest of the model library is stored on the device for offline play (OS-33: 3.2)
+async function fillLibrary() {
+  if (!('caches' in window) || location.protocol === 'file:') return;
+  try {
+    const cache = await caches.open(MODEL_CACHE);
+    const defs = library.defs;
+    let have = 0;
+    for (const d of defs) {
+      const url = new URL(modelUrl(d), location.href).href;
+      if (!(await cache.match(url))) {
+        try { const res = await fetch(url, { cache: 'no-cache' }); if (res.ok) await cache.put(url, res); } catch (e) { return; }   // offline: try again next time
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      have++;
+      if (have % 10 === 0 || have === defs.length) $('offline').textContent = have < defs.length ? `library ${have} / ${defs.length}` : 'offline-ready ✓';
+    }
+  } catch (e) { console.warn('library fill', e); }
+}
 
 // ---------- test-tool pills: hover peeks (desktop), click/tap pins open or closed ----------
 document.querySelectorAll('.tool').forEach((tool) => {
@@ -582,7 +671,12 @@ overheadBtn.addEventListener('click', () => {
   overheadBtn.setAttribute('aria-pressed', String(lighting.overhead));
 });
 
-newRound(params.get('round') ? Number(params.get('round')) : undefined);
+// first round: resume the saved one (M5), else ask the Per Scene Options
+{
+  const saved = params.get('round') || params.get('fresh') ? null : session.saved();
+  if (saved) startRound({ ...saved.opts }, saved).then(() => toast('Welcome back – your Scene is as you left it'));
+  else startRound(params.get('opts') === 'default' ? { ...session.defaults } : null);
+}
 let startView = 'diorama';
 try { startView = localStorage.getItem('objectsleuth.view') || 'diorama'; } catch (e) { /* ignore */ }
 setView(VIEWS[params.get('view')] ? params.get('view') : startView, !params.get('view'));
@@ -591,7 +685,7 @@ if (params.get('zoom') && view === 'diorama') {
   ortho.focusOn(new THREE.Vector3(x, y, z), Number(params.get('zoom')));
 }
 updatePills();
-window.objectsleuth = { targets, get camera() { return camera; }, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab, get controls() { return controls; }, ortho, look, setView, newRound, batcher, study }; // (for testing in the browser console)
+window.objectsleuth = { targets, library, session, get camera() { return camera; }, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab, get controls() { return controls; }, ortho, look, setView, startRound, batcher, study, chooseStyle }; // (for testing in the browser console)
 
 // ---------- main loop (v13 "zero-idle": draw only when something visible changes) ----------
 //  • moving (pan, zoom, walking, a find animation, curtains gliding, test-clock time-lapse): full
@@ -662,6 +756,7 @@ renderer.setAnimationLoop(() => {
     const fps = Math.round(frames / acc);
     fpsEl.textContent = frames ? `${fps} fps · ${(cpu / frames).toFixed(1)} ms · ${draws} draws · ×${prNow.toFixed(2)}` : `0 fps (resting) · ×${prNow.toFixed(2)}`;
     showTestClock();
+    session.tick();                     // timer + score text (page text only: no 3D redraw)
     if (quality.adaptive && moveTime > 0.5) {
       const mfps = moveFrames / moveTime;
       slow = mfps < 40 ? slow + 1 : 0;
@@ -683,7 +778,7 @@ if ('serviceWorker' in navigator) {
   });
   navigator.serviceWorker.register('./sw.js')
     .then(() => navigator.serviceWorker.ready)
-    .then(() => { $('offline').textContent = 'offline-ready ✓'; })
+    .then(() => { $('offline').textContent = 'offline-ready ✓'; setTimeout(fillLibrary, 6000); })
     .catch((err) => { $('offline').textContent = 'offline unavailable'; console.warn(err); });
 } else {
   $('offline').textContent = 'offline unavailable';

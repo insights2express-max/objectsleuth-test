@@ -34,15 +34,16 @@
       <button type="button" data-view="diorama" title="Look into the room from above, like a doll's house">🏠 Diorama</button>
       <button type="button" data-view="stage" title="Sit in front of the open room, like a theatre stage">🎭 Stage</button>
       <button type="button" data-view="walk" title="Stand inside the room: look all around; double-tap the floor to walk">🚶 Walk-in</button>
+      <button type="button" id="settings-btn" title="Settings and Personal Bests">⚙️</button>
     </div>
   </header>
 
   <!-- TEST TOOLS: each folds into a small pill (hover to peek, click/tap to pin open or closed) -->
   <div id="tools">
     <div class="tool" id="tool-style">
-      <button type="button" class="pill" aria-expanded="false">🎨 STYLE: <span id="pill-style">–</span></button>
+      <button type="button" class="pill" aria-expanded="false">🎨 LOOK: <span id="pill-style">–</span></button>
       <div class="body">
-        <select id="style" aria-label="Art style"></select>
+        <select id="style" aria-label="Look"></select>
         <button type="button" id="mini" aria-pressed="false" title="Tilt-shift: looks like a tiny model">🔍 Miniature</button>
       </div>
     </div>
@@ -67,15 +68,15 @@
   <aside id="findpanel" class="side" role="region" aria-label="Find the Objects">
     <div class="fp-head" id="fp-head" title="Drag to move">
       <span class="fp-title">Find the Objects</span>
-      <span class="fp-count" id="fp-count">0 / 6</span>
+      <span class="fp-count" id="fp-count">0 / 15</span>
       <button type="button" id="fp-toggle" class="fp-chev" aria-expanded="true" aria-label="Fold or unfold the list">▾</button>
     </div>
     <div class="fp-body">
-      <p class="fp-intro">Explore the scene by zooming in/out, panning around, and selecting each of the hidden objects.</p>
-      <div class="fp-progress"><span>DISCOVERED</span><b id="fp-done">0 / 6</b></div>
+      <div class="hud"><span id="hud-score" title="Score">0</span><span id="hud-flash"></span><span id="hud-time" title="Time">⏱️ 0:00</span></div>
+      <div class="hud-mode" id="hud-mode"></div>
+      <div class="fp-progress"><span>DISCOVERED</span><b id="fp-done">0 / 15</b></div>
       <div class="fp-bar"><i id="fp-bar"></i></div>
       <ul id="findlist"></ul>
-      <p id="findmsg" hidden></p>
       <div class="fp-foot">
         <select id="chal" aria-label="Challenge level" title="How well the objects are hidden"></select>
         <button type="button" id="newround" class="restart" title="Hide the objects somewhere new">Restart Scene</button>
@@ -85,19 +86,92 @@
     <div class="fp-grip right" id="fp-grip-r" title="Drag to resize"></div>
   </aside>
 
-  <div id="hintbar" role="group" aria-label="Hints">
-    <button type="button" id="reveal1" title="Show one object you haven't found yet">👁️ Reveal 1</button>
-    <button type="button" id="revealall" title="Show all the objects you haven't found yet">👁️ Reveal All</button>
-  </div>
-
-  <div id="zoombar" role="group" aria-label="Zoom">
-    <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
-    <span id="zoom-label">×1.0</span>
-    <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
-    <button type="button" id="zoom-reset" aria-label="Show whole room">⤢</button>
+  <!-- bottom right, one row (OS-25 obs 2–3): Reveal buttons, then Home, −, zoom, + -->
+  <div id="bottombar">
+    <div id="hintbar" role="group" aria-label="Hints">
+      <button type="button" id="reveal1" title="Show one listed object you haven't found yet">👁️ Reveal 1</button>
+      <button type="button" id="revealall" title="Show every listed object you haven't found yet">👁️ Reveal List</button>
+    </div>
+    <div id="zoombar" role="group" aria-label="Zoom">
+      <button type="button" id="zoom-reset" aria-label="Show whole room" title="Whole room">⤢</button>
+      <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+      <span id="zoom-label">×1.0</span>
+      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+    </div>
   </div>
 
   <div id="toast" role="status" aria-live="polite"></div>
+  <div id="tease" role="status" aria-live="polite">Close, but not this one.</div>
+
+  <!-- loading / hiding note -->
+  <div id="busy" hidden><div><b id="busy-title">Hiding the objects…</b><span id="busy-sub"></span></div></div>
+
+  <!-- PER SCENE OPTIONS (SDD 8.07): before each Scene Instance -->
+  <div id="options" class="dialog" hidden>
+    <div class="card">
+      <h2>Scene options</h2>
+      <section>
+        <h3>List</h3>
+        <label><input type="radio" name="pres" value="standard"> Standard <small>the object's name</small></label>
+        <label><input type="radio" name="pres" value="scrambled"> Scrambled <small>its letters mixed up</small></label>
+        <label><input type="radio" name="pres" value="silhouette"> Silhouette <small>its shape as it appears in the room</small></label>
+        <label><input type="radio" name="pres" value="mixed"> Mixed <small>a third of each</small></label>
+        <label class="def"><input type="checkbox" id="def-pres"> Make this my default</label>
+      </section>
+      <section>
+        <h3>Challenge level</h3>
+        <label><input type="radio" name="chal" value="low"> Low</label>
+        <label><input type="radio" name="chal" value="med"> Medium <small>1 look-alike</small></label>
+        <label><input type="radio" name="chal" value="high"> High <small>2 look-alikes</small></label>
+        <label class="def"><input type="checkbox" id="def-chal"> Make this my default</label>
+      </section>
+      <section>
+        <h3>Play format</h3>
+        <label><input type="radio" name="fmt" value="countdown"> Countdown
+          <select id="opt-minutes" aria-label="Countdown time">
+            <option value="1">1 min</option><option value="2">2 min</option><option value="3">3 min</option><option value="4">4 min</option><option value="5">5 min</option>
+            <option value="untimed">Untimed</option><option value="custom">Custom…</option>
+          </select></label>
+        <label id="opt-custom-row" hidden>Custom: <input type="number" id="opt-custom" min="1" max="30" step="1" value="10"> min <small>(1–30)</small></label>
+        <label><input type="radio" name="fmt" value="pb"> Personal Best <small>no countdown – beat your time</small></label>
+        <label class="def"><input type="checkbox" id="def-fmt"> Make this my default</label>
+      </section>
+      <label class="skip"><input type="checkbox" id="opt-skip"> Don't ask before each Scene – use my defaults (change them in ⚙️ Settings)</label>
+      <button type="button" id="opt-start" class="big">Start</button>
+    </div>
+  </div>
+
+  <!-- END OF ROUND (OS-26: 3.1.1): over the Scene until a tap anywhere, or Restart Scene -->
+  <div id="endpop" hidden>
+    <div class="card">
+      <h2 id="end-title">Scene complete!</h2>
+      <div id="end-body"></div>
+      <button type="button" id="end-restart" class="big">Restart Scene</button>
+      <small>Tap anywhere to keep looking</small>
+    </div>
+  </div>
+
+  <!-- SETTINGS (M5) -->
+  <div id="settings" class="dialog" hidden>
+    <div class="card wide">
+      <h2>Settings</h2>
+      <section class="row">
+        <label>Look <select id="set-look"></select></label>
+        <label>Quality <select id="set-quality"></select></label>
+        <label><input type="checkbox" id="set-ao"> Contact shading</label>
+        <label><input type="checkbox" id="set-soft"> Soft shadows</label>
+      </section>
+      <section class="row">
+        <button type="button" id="set-defaults">Scene options & defaults…</button>
+      </section>
+      <h3>Personal Bests</h3>
+      <div class="pbwrap"><table id="pb-table"></table></div>
+      <section class="row">
+        <button type="button" id="set-clear">Clear Personal Bests</button>
+        <button type="button" id="set-close" class="big">Close</button>
+      </section>
+    </div>
+  </div>
 
   <div id="info"><span id="build"></span> · <span id="fps">– fps</span> · <span id="offline">…</span></div>
 

@@ -140,16 +140,17 @@ function bakeClayBase() {
 function bakeClayMarks() {
   return atlas(7002, 128, (k, r, T, H, S) => {
     const c = S / 2;
-    if (k < 4) { // thumbprint: oval hollow, whorl ridges, a slightly pushed-up rim
-      const rad = 34 + r() * 16, ang = r() * Math.PI, sq = 0.62 + r() * 0.22, ca = Math.cos(ang), sa = Math.sin(ang);
-      const ox = (r() - 0.5) * 0.5, oy = (r() - 0.5) * 0.5, freq = 0.75 + r() * 0.25;
-      stamp(S, c, c, rad * 1.25, (i, dx, dy) => {
-        const u = dx * ca + dy * sa, v = (-dx * sa + dy * ca) / sq, d = Math.hypot(u, v) / rad;
-        if (d >= 1.2) return;
-        const bowl = d < 1 ? (1 - d * d) ** 2 : 0, rim = Math.exp(-(((d - 1.03) / 0.09) ** 2));
-        const whorl = Math.sin(Math.hypot(u / rad + ox, v / rad + oy) * rad * freq);
-        H[i] += -0.2 * bowl + 0.06 * rim + 0.035 * bowl * whorl;
-        T[i] -= 0.025 * bowl;
+    if (k < 2) { // v16 (OS-25 obs 1): half as many prints, now SHALLOW SMUDGES – a soft, uneven, slightly
+      // dragged hollow; one of the two shapes still shows faint open-loop ridges (an open arc, never a whorl)
+      const rad = 30 + r() * 18, ang = r() * Math.PI, sq = 0.55 + r() * 0.25, ca = Math.cos(ang), sa = Math.sin(ang);
+      const drag = 0.25 + r() * 0.35, freq = 0.8 + r() * 0.2, loop = k === 1;
+      stamp(S, c, c, rad * 1.4, (i, dx, dy) => {
+        const u = dx * ca + dy * sa, v = (-dx * sa + dy * ca) / sq, d = Math.hypot(u - Math.max(0, u) * drag, v) / rad;
+        if (d >= 1.25) return;
+        const bowl = d < 1 ? (1 - d * d) ** 2.5 : 0, rim = Math.exp(-(((d - 1.05) / 0.12) ** 2));
+        H[i] += -0.06 * bowl + 0.018 * rim;
+        if (loop && bowl > 0 && v > -0.35 * rad) H[i] += 0.012 * bowl * Math.sin(Math.hypot(u / rad, (v / rad) + 0.6) * rad * freq);   // open loop
+        T[i] -= 0.012 * bowl;
       });
     } else if (k < 7) { // a few small dents
       const n = 1 + Math.floor(r() * 4);

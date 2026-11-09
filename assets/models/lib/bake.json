@@ -1,0 +1,2343 @@
+{
+    "baked":  "2026-11-09T19:59:07.889Z",
+    "models":  [
+                   {
+                       "id":  "alarm_clock_01",
+                       "file":  "lib/alarm_clock_01.glb",
+                       "trisIn":  8985,
+                       "trisOut":  2998,
+                       "parts":  2,
+                       "bytes":  180928,
+                       "size":  [
+                                    0.132,
+                                    0.174,
+                                    0.067
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "baseball_01",
+                       "file":  "lib/baseball_01.glb",
+                       "trisIn":  10848,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  187400,
+                       "size":  [
+                                    0.074,
+                                    0.075,
+                                    0.075
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "brass_vase_03",
+                       "file":  "lib/brass_vase_03.glb",
+                       "trisIn":  2616,
+                       "trisOut":  2616,
+                       "parts":  1,
+                       "bytes":  138980,
+                       "size":  [
+                                    0.083,
+                                    0.2,
+                                    0.083
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "Camera_01",
+                       "file":  "lib/Camera_01.glb",
+                       "trisIn":  26987,
+                       "trisOut":  2989,
+                       "parts":  4,
+                       "bytes":  296216,
+                       "size":  [
+                                    0.214,
+                                    0.078,
+                                    0.263
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "carved_wooden_elephant",
+                       "file":  "lib/carved_wooden_elephant.glb",
+                       "trisIn":  2752,
+                       "trisOut":  2752,
+                       "parts":  1,
+                       "bytes":  131284,
+                       "size":  [
+                                    0.109,
+                                    0.096,
+                                    0.058
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "concrete_cat_statue",
+                       "file":  "lib/concrete_cat_statue.glb",
+                       "trisIn":  11950,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  185896,
+                       "size":  [
+                                    0.153,
+                                    0.283,
+                                    0.25
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "croissant",
+                       "file":  "lib/croissant.glb",
+                       "trisIn":  1990,
+                       "trisOut":  1990,
+                       "parts":  1,
+                       "bytes":  110412,
+                       "size":  [
+                                    0.2,
+                                    0.062,
+                                    0.076
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "cross_pein_hammer",
+                       "file":  "lib/cross_pein_hammer.glb",
+                       "trisIn":  2124,
+                       "trisOut":  2124,
+                       "parts":  1,
+                       "bytes":  117472,
+                       "size":  [
+                                    0.099,
+                                    0.3,
+                                    0.024
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "digital_wrist_watch",
+                       "file":  "lib/digital_wrist_watch.glb",
+                       "trisIn":  10390,
+                       "trisOut":  2995,
+                       "parts":  2,
+                       "bytes":  243872,
+                       "size":  [
+                                    0.036,
+                                    0.008,
+                                    0.217
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "fishermans_hat",
+                       "file":  "lib/fishermans_hat.glb",
+                       "trisIn":  10304,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  142904,
+                       "size":  [
+                                    0.324,
+                                    0.124,
+                                    0.35
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "food_apple_01",
+                       "file":  "lib/food_apple_01.glb",
+                       "trisIn":  7012,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  162712,
+                       "size":  [
+                                    0.098,
+                                    0.085,
+                                    0.096
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "food_pomegranate_01",
+                       "file":  "lib/food_pomegranate_01.glb",
+                       "trisIn":  8142,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  155560,
+                       "size":  [
+                                    0.114,
+                                    0.115,
+                                    0.115
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "garden_gloves_01",
+                       "file":  "lib/garden_gloves_01.glb",
+                       "trisIn":  6822,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  165376,
+                       "size":  [
+                                    0.227,
+                                    0.076,
+                                    0.299
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "horse_statue_01",
+                       "file":  "lib/horse_statue_01.glb",
+                       "trisIn":  22388,
+                       "trisOut":  2999,
+                       "parts":  2,
+                       "bytes":  151312,
+                       "size":  [
+                                    0.165,
+                                    0.221,
+                                    0.108
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "jug_01",
+                       "file":  "lib/jug_01.glb",
+                       "trisIn":  5770,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  120656,
+                       "size":  [
+                                    0.275,
+                                    0.211,
+                                    0.168
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "lambis_shell",
+                       "file":  "lib/lambis_shell.glb",
+                       "trisIn":  12498,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  194560,
+                       "size":  [
+                                    0.139,
+                                    0.047,
+                                    0.075
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "Lantern_01",
+                       "file":  "lib/Lantern_01.glb",
+                       "trisIn":  33902,
+                       "trisOut":  2971,
+                       "parts":  2,
+                       "bytes":  162276,
+                       "size":  [
+                                    0.122,
+                                    0.294,
+                                    0.097
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "lemon",
+                       "file":  "lib/lemon.glb",
+                       "trisIn":  4012,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  129424,
+                       "size":  [
+                                    0.069,
+                                    0.095,
+                                    0.068
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "lightbulb_01",
+                       "file":  "lib/lightbulb_01.glb",
+                       "trisIn":  4372,
+                       "trisOut":  2998,
+                       "parts":  2,
+                       "bytes":  134356,
+                       "size":  [
+                                    0.06,
+                                    0.1,
+                                    0.06
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "magnifying_glass_01",
+                       "file":  "lib/magnifying_glass_01.glb",
+                       "trisIn":  7240,
+                       "trisOut":  2998,
+                       "parts":  2,
+                       "bytes":  119184,
+                       "size":  [
+                                    0.132,
+                                    0.272,
+                                    0.027
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "measuring_tape_01",
+                       "file":  "lib/measuring_tape_01.glb",
+                       "trisIn":  2868,
+                       "trisOut":  2868,
+                       "parts":  1,
+                       "bytes":  146672,
+                       "size":  [
+                                    0.041,
+                                    0.073,
+                                    0.169
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "mousetrap",
+                       "file":  "lib/mousetrap.glb",
+                       "trisIn":  5136,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  176360,
+                       "size":  [
+                                    0.055,
+                                    0.018,
+                                    0.1
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "pliers",
+                       "file":  "lib/pliers.glb",
+                       "trisIn":  4540,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  182036,
+                       "size":  [
+                                    0.055,
+                                    0.18,
+                                    0.018
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "pocket_watch",
+                       "file":  "lib/pocket_watch.glb",
+                       "trisIn":  15615,
+                       "trisOut":  2999,
+                       "parts":  2,
+                       "bytes":  181976,
+                       "size":  [
+                                    0.058,
+                                    0.076,
+                                    0.016
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "round_spectacles",
+                       "file":  "lib/round_spectacles.glb",
+                       "trisIn":  11810,
+                       "trisOut":  2997,
+                       "parts":  2,
+                       "bytes":  169500,
+                       "size":  [
+                                    0.158,
+                                    0.046,
+                                    0.149
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "rubber_duck_toy",
+                       "file":  "lib/rubber_duck_toy.glb",
+                       "trisIn":  4288,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  114520,
+                       "size":  [
+                                    0.214,
+                                    0.286,
+                                    0.3
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "screwdriver",
+                       "file":  "lib/screwdriver.glb",
+                       "trisIn":  3412,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  133452,
+                       "size":  [
+                                    0.027,
+                                    0.209,
+                                    0.027
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "seadogs_compass",
+                       "file":  "lib/seadogs_compass.glb",
+                       "trisIn":  11645,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  207968,
+                       "size":  [
+                                    0.081,
+                                    0.087,
+                                    0.15
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_binocular",
+                       "file":  "lib/vintage_binocular.glb",
+                       "trisIn":  19362,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  208860,
+                       "size":  [
+                                    0.194,
+                                    0.068,
+                                    0.199
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_flashlight",
+                       "file":  "lib/vintage_flashlight.glb",
+                       "trisIn":  10562,
+                       "trisOut":  2998,
+                       "parts":  2,
+                       "bytes":  181780,
+                       "size":  [
+                                    0.096,
+                                    0.144,
+                                    0.305
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_lighter",
+                       "file":  "lib/vintage_lighter.glb",
+                       "trisIn":  3366,
+                       "trisOut":  3006,
+                       "parts":  2,
+                       "bytes":  182172,
+                       "size":  [
+                                    0.082,
+                                    0.066,
+                                    0.014
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_microscope",
+                       "file":  "lib/vintage_microscope.glb",
+                       "trisIn":  20631,
+                       "trisOut":  2992,
+                       "parts":  2,
+                       "bytes":  226152,
+                       "size":  [
+                                    0.107,
+                                    0.4,
+                                    0.182
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_stapler",
+                       "file":  "lib/vintage_stapler.glb",
+                       "trisIn":  4370,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  203712,
+                       "size":  [
+                                    0.208,
+                                    0.095,
+                                    0.047
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wooden_bowl_02",
+                       "file":  "lib/wooden_bowl_02.glb",
+                       "trisIn":  4666,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  176324,
+                       "size":  [
+                                    0.131,
+                                    0.073,
+                                    0.125
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wooden_candlestick",
+                       "file":  "lib/wooden_candlestick.glb",
+                       "trisIn":  212992,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  167912,
+                       "size":  [
+                                    0.097,
+                                    0.22,
+                                    0.099
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wooden_spoon",
+                       "file":  "lib/wooden_spoon.glb",
+                       "trisIn":  6576,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  127288,
+                       "size":  [
+                                    0.087,
+                                    0.025,
+                                    0.278
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "adjustable_wrench",
+                       "file":  "lib/adjustable_wrench.glb",
+                       "trisIn":  5390,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  208692,
+                       "size":  [
+                                    0.068,
+                                    0.254,
+                                    0.031
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "american_football",
+                       "file":  "lib/american_football.glb",
+                       "trisIn":  4480,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  167460,
+                       "size":  [
+                                    0.453,
+                                    0.256,
+                                    0.256
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "antique_estoc",
+                       "file":  "lib/antique_estoc.glb",
+                       "trisIn":  8246,
+                       "trisOut":  8246,
+                       "parts":  1,
+                       "bytes":  345956,
+                       "size":  [
+                                    0.372,
+                                    1.492,
+                                    0.149
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "ArmChair_01",
+                       "file":  "lib/ArmChair_01.glb",
+                       "trisIn":  5626,
+                       "trisOut":  5626,
+                       "parts":  1,
+                       "bytes":  239872,
+                       "size":  [
+                                    0.848,
+                                    1.065,
+                                    0.766
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "bananas",
+                       "file":  "lib/bananas.glb",
+                       "trisIn":  46868,
+                       "trisOut":  4000,
+                       "parts":  1,
+                       "bytes":  176840,
+                       "size":  [
+                                    0.6,
+                                    0.179,
+                                    0.244
+                                ],
+                       "budget":  4000
+                   },
+                   {
+                       "id":  "baseball_bat",
+                       "file":  "lib/baseball_bat.glb",
+                       "trisIn":  2672,
+                       "trisOut":  2672,
+                       "parts":  1,
+                       "bytes":  134828,
+                       "size":  [
+                                    0.064,
+                                    0.913,
+                                    0.064
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "bench_vice_01",
+                       "file":  "lib/bench_vice_01.glb",
+                       "trisIn":  2864,
+                       "trisOut":  2864,
+                       "parts":  1,
+                       "bytes":  178348,
+                       "size":  [
+                                    0.2,
+                                    0.285,
+                                    0.396
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "binder_notebook",
+                       "file":  "lib/binder_notebook.glb",
+                       "trisIn":  18077,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  184064,
+                       "size":  [
+                                    0.584,
+                                    0.025,
+                                    0.2
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "binoculars",
+                       "file":  "lib/binoculars.glb",
+                       "trisIn":  19248,
+                       "trisOut":  2998,
+                       "parts":  2,
+                       "bytes":  183536,
+                       "size":  [
+                                    0.167,
+                                    0.077,
+                                    0.288
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "bleach_bottle",
+                       "file":  "lib/bleach_bottle.glb",
+                       "trisIn":  4052,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  134916,
+                       "size":  [
+                                    0.088,
+                                    0.294,
+                                    0.061
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "bolt_action_rifle_7_62",
+                       "file":  "lib/bolt_action_rifle_7_62.glb",
+                       "trisIn":  19985,
+                       "trisOut":  9999,
+                       "parts":  3,
+                       "bytes":  549880,
+                       "size":  [
+                                    1.231,
+                                    0.205,
+                                    0.067
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "bolt_cutters_01",
+                       "file":  "lib/bolt_cutters_01.glb",
+                       "trisIn":  3410,
+                       "trisOut":  3410,
+                       "parts":  1,
+                       "bytes":  178820,
+                       "size":  [
+                                    0.151,
+                                    0.803,
+                                    0.036
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "boombox",
+                       "file":  "lib/boombox.glb",
+                       "trisIn":  10168,
+                       "trisOut":  5998,
+                       "parts":  2,
+                       "bytes":  383356,
+                       "size":  [
+                                    0.724,
+                                    0.47,
+                                    0.186
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "brass_blowtorch",
+                       "file":  "lib/brass_blowtorch.glb",
+                       "trisIn":  11750,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  167332,
+                       "size":  [
+                                    0.129,
+                                    0.211,
+                                    0.259
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "brass_candleholders",
+                       "file":  "lib/brass_candleholders.glb",
+                       "trisIn":  41936,
+                       "trisOut":  5990,
+                       "parts":  5,
+                       "bytes":  609504,
+                       "size":  [
+                                    1.053,
+                                    0.835,
+                                    0.365
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "brass_goblets",
+                       "file":  "lib/brass_goblets.glb",
+                       "trisIn":  9600,
+                       "trisOut":  3000,
+                       "parts":  3,
+                       "bytes":  304744,
+                       "size":  [
+                                    0.453,
+                                    0.273,
+                                    0.298
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "brass_pot_02",
+                       "file":  "lib/brass_pot_02.glb",
+                       "trisIn":  3344,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  145216,
+                       "size":  [
+                                    0.367,
+                                    0.109,
+                                    0.302
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "brass_vase_01",
+                       "file":  "lib/brass_vase_01.glb",
+                       "trisIn":  21440,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  230936,
+                       "size":  [
+                                    0.227,
+                                    0.692,
+                                    0.227
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "brass_vase_02",
+                       "file":  "lib/brass_vase_02.glb",
+                       "trisIn":  6890,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  154640,
+                       "size":  [
+                                    0.21,
+                                    0.529,
+                                    0.21
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "bronze_shark_statue",
+                       "file":  "lib/bronze_shark_statue.glb",
+                       "trisIn":  7334,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  246268,
+                       "size":  [
+                                    0.352,
+                                    0.432,
+                                    0.76
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "carrot_cake",
+                       "file":  "lib/carrot_cake.glb",
+                       "trisIn":  13790,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  190648,
+                       "size":  [
+                                    0.225,
+                                    0.098,
+                                    0.225
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "cassette_player",
+                       "file":  "lib/cassette_player.glb",
+                       "trisIn":  4830,
+                       "trisOut":  2996,
+                       "parts":  3,
+                       "bytes":  198852,
+                       "size":  [
+                                    0.129,
+                                    0.237,
+                                    0.049
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "ceramic_pot",
+                       "file":  "lib/ceramic_pot.glb",
+                       "trisIn":  3592,
+                       "trisOut":  3592,
+                       "parts":  1,
+                       "bytes":  174428,
+                       "size":  [
+                                    0.656,
+                                    0.372,
+                                    0.502
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "ceramic_vase_01",
+                       "file":  "lib/ceramic_vase_01.glb",
+                       "trisIn":  10296,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  121440,
+                       "size":  [
+                                    0.204,
+                                    0.4,
+                                    0.204
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "ceramic_vase_03",
+                       "file":  "lib/ceramic_vase_03.glb",
+                       "trisIn":  11136,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  153712,
+                       "size":  [
+                                    0.112,
+                                    0.414,
+                                    0.112
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "chess_set",
+                       "file":  "lib/chess_set.glb",
+                       "trisIn":  76920,
+                       "trisOut":  11996,
+                       "parts":  3,
+                       "bytes":  642304,
+                       "size":  [
+                                    0.553,
+                                    0.112,
+                                    0.553
+                                ],
+                       "budget":  12000
+                   },
+                   {
+                       "id":  "chinese_tea_table",
+                       "file":  "lib/chinese_tea_table.glb",
+                       "trisIn":  2508,
+                       "trisOut":  2508,
+                       "parts":  1,
+                       "bytes":  134016,
+                       "size":  [
+                                    0.841,
+                                    0.499,
+                                    0.836
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "classic_laptop",
+                       "file":  "lib/classic_laptop.glb",
+                       "trisIn":  14450,
+                       "trisOut":  6001,
+                       "parts":  2,
+                       "bytes":  365904,
+                       "size":  [
+                                    0.652,
+                                    0.543,
+                                    0.486
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "clipboard",
+                       "file":  "lib/clipboard.glb",
+                       "trisIn":  6176,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  168504,
+                       "size":  [
+                                    0.229,
+                                    0.042,
+                                    0.337
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "combination_wrench",
+                       "file":  "lib/combination_wrench.glb",
+                       "trisIn":  1986,
+                       "trisOut":  1986,
+                       "parts":  1,
+                       "bytes":  121760,
+                       "size":  [
+                                    0.057,
+                                    0.022,
+                                    0.337
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "crowbar_01",
+                       "file":  "lib/crowbar_01.glb",
+                       "trisIn":  2300,
+                       "trisOut":  2300,
+                       "parts":  1,
+                       "bytes":  120344,
+                       "size":  [
+                                    0.04,
+                                    0.555,
+                                    0.128
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "dartboard",
+                       "file":  "lib/dartboard.glb",
+                       "trisIn":  6800,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  182616,
+                       "size":  [
+                                    0.451,
+                                    0.451,
+                                    0.04
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "desk_lamp_arm_01",
+                       "file":  "lib/desk_lamp_arm_01.glb",
+                       "trisIn":  24102,
+                       "trisOut":  5998,
+                       "parts":  2,
+                       "bytes":  333024,
+                       "size":  [
+                                    0.202,
+                                    0.893,
+                                    0.614
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "dining_chair_02",
+                       "file":  "lib/dining_chair_02.glb",
+                       "trisIn":  22013,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  230384,
+                       "size":  [
+                                    0.434,
+                                    0.973,
+                                    0.576
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "drain_cleaner",
+                       "file":  "lib/drain_cleaner.glb",
+                       "trisIn":  4338,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  156608,
+                       "size":  [
+                                    0.165,
+                                    0.179,
+                                    0.056
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "Drill_01",
+                       "file":  "lib/Drill_01.glb",
+                       "trisIn":  2926,
+                       "trisOut":  2926,
+                       "parts":  1,
+                       "bytes":  153100,
+                       "size":  [
+                                    0.183,
+                                    0.185,
+                                    0.052
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "dustpan",
+                       "file":  "lib/dustpan.glb",
+                       "trisIn":  4332,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  148496,
+                       "size":  [
+                                    0.332,
+                                    0.1,
+                                    0.368
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "filmstrip_projector_8mm",
+                       "file":  "lib/filmstrip_projector_8mm.glb",
+                       "trisIn":  32697,
+                       "trisOut":  5998,
+                       "parts":  2,
+                       "bytes":  385048,
+                       "size":  [
+                                    0.254,
+                                    0.345,
+                                    0.603
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "flathead_screwdriver",
+                       "file":  "lib/flathead_screwdriver.glb",
+                       "trisIn":  2300,
+                       "trisOut":  2300,
+                       "parts":  1,
+                       "bytes":  126844,
+                       "size":  [
+                                    0.03,
+                                    0.261,
+                                    0.03
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "gamepad",
+                       "file":  "lib/gamepad.glb",
+                       "trisIn":  9546,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  148384,
+                       "size":  [
+                                    0.404,
+                                    0.019,
+                                    0.435
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "garden_gnome",
+                       "file":  "lib/garden_gnome.glb",
+                       "trisIn":  28858,
+                       "trisOut":  5000,
+                       "parts":  1,
+                       "bytes":  228184,
+                       "size":  [
+                                    0.258,
+                                    0.599,
+                                    0.21
+                                ],
+                       "budget":  5000
+                   },
+                   {
+                       "id":  "GreenChair_01",
+                       "file":  "lib/GreenChair_01.glb",
+                       "trisIn":  4213,
+                       "trisOut":  4213,
+                       "parts":  1,
+                       "bytes":  188936,
+                       "size":  [
+                                    0.673,
+                                    1.059,
+                                    0.664
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "handsaw_wood",
+                       "file":  "lib/handsaw_wood.glb",
+                       "trisIn":  2548,
+                       "trisOut":  2548,
+                       "parts":  1,
+                       "bytes":  174576,
+                       "size":  [
+                                    0.041,
+                                    0.167,
+                                    0.633
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "hand_plane_no4",
+                       "file":  "lib/hand_plane_no4.glb",
+                       "trisIn":  8220,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  174432,
+                       "size":  [
+                                    0.331,
+                                    0.198,
+                                    0.084
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "hatchet",
+                       "file":  "lib/hatchet.glb",
+                       "trisIn":  5250,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  167308,
+                       "size":  [
+                                    0.026,
+                                    0.289,
+                                    0.104
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "industrial_microscope",
+                       "file":  "lib/industrial_microscope.glb",
+                       "trisIn":  16598,
+                       "trisOut":  2992,
+                       "parts":  1,
+                       "bytes":  233292,
+                       "size":  [
+                                    0.215,
+                                    0.462,
+                                    0.498
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "industrial_pipe_lamp",
+                       "file":  "lib/industrial_pipe_lamp.glb",
+                       "trisIn":  8626,
+                       "trisOut":  2954,
+                       "parts":  2,
+                       "bytes":  197036,
+                       "size":  [
+                                    0.183,
+                                    0.364,
+                                    0.262
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "industrial_wall_sconce",
+                       "file":  "lib/industrial_wall_sconce.glb",
+                       "trisIn":  9826,
+                       "trisOut":  2997,
+                       "parts":  2,
+                       "bytes":  161104,
+                       "size":  [
+                                    0.15,
+                                    0.342,
+                                    0.252
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "kite_shield",
+                       "file":  "lib/kite_shield.glb",
+                       "trisIn":  10306,
+                       "trisOut":  9998,
+                       "parts":  2,
+                       "bytes":  470368,
+                       "size":  [
+                                    0.543,
+                                    1.394,
+                                    0.135
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "korean_public_payphone_01",
+                       "file":  "lib/korean_public_payphone_01.glb",
+                       "trisIn":  48132,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  290936,
+                       "size":  [
+                                    0.401,
+                                    0.74,
+                                    0.301
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "lightbulb_led",
+                       "file":  "lib/lightbulb_led.glb",
+                       "trisIn":  6420,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  131164,
+                       "size":  [
+                                    0.061,
+                                    0.1,
+                                    0.061
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "machete",
+                       "file":  "lib/machete.glb",
+                       "trisIn":  3032,
+                       "trisOut":  3032,
+                       "parts":  1,
+                       "bytes":  153724,
+                       "size":  [
+                                    0.044,
+                                    0.755,
+                                    0.061
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "mantel_clock_01",
+                       "file":  "lib/mantel_clock_01.glb",
+                       "trisIn":  25721,
+                       "trisOut":  4998,
+                       "parts":  2,
+                       "bytes":  225400,
+                       "size":  [
+                                    0.342,
+                                    0.16,
+                                    0.126
+                                ],
+                       "budget":  5000
+                   },
+                   {
+                       "id":  "Megaphone_01",
+                       "file":  "lib/Megaphone_01.glb",
+                       "trisIn":  15814,
+                       "trisOut":  2989,
+                       "parts":  1,
+                       "bytes":  152320,
+                       "size":  [
+                                    0.371,
+                                    0.3,
+                                    0.228
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "metal_detector",
+                       "file":  "lib/metal_detector.glb",
+                       "trisIn":  15518,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  316160,
+                       "size":  [
+                                    0.289,
+                                    1.122,
+                                    1.19
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "metal_jerrycan",
+                       "file":  "lib/metal_jerrycan.glb",
+                       "trisIn":  20022,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  147524,
+                       "size":  [
+                                    0.35,
+                                    0.455,
+                                    0.172
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "metal_jug",
+                       "file":  "lib/metal_jug.glb",
+                       "trisIn":  6040,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  129724,
+                       "size":  [
+                                    0.197,
+                                    0.288,
+                                    0.195
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "metal_toolbox",
+                       "file":  "lib/metal_toolbox.glb",
+                       "trisIn":  14228,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  208520,
+                       "size":  [
+                                    0.4,
+                                    0.347,
+                                    0.292
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "metal_tool_chest",
+                       "file":  "lib/metal_tool_chest.glb",
+                       "trisIn":  13360,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  325780,
+                       "size":  [
+                                    0.685,
+                                    0.652,
+                                    0.407
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "mid_century_lounge_chair",
+                       "file":  "lib/mid_century_lounge_chair.glb",
+                       "trisIn":  6148,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  257332,
+                       "size":  [
+                                    1.009,
+                                    1.169,
+                                    1.19
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "modern_arm_chair_01",
+                       "file":  "lib/modern_arm_chair_01.glb",
+                       "trisIn":  8916,
+                       "trisOut":  5998,
+                       "parts":  2,
+                       "bytes":  272360,
+                       "size":  [
+                                    0.82,
+                                    1.023,
+                                    0.987
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "modified_thermos",
+                       "file":  "lib/modified_thermos.glb",
+                       "trisIn":  11576,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  221076,
+                       "size":  [
+                                    0.143,
+                                    0.306,
+                                    0.101
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "old_gas_mask",
+                       "file":  "lib/old_gas_mask.glb",
+                       "trisIn":  18900,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  269072,
+                       "size":  [
+                                    0.211,
+                                    1.126,
+                                    0.309
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "ornate_medieval_dagger",
+                       "file":  "lib/ornate_medieval_dagger.glb",
+                       "trisIn":  6290,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  154872,
+                       "size":  [
+                                    0.12,
+                                    0.349,
+                                    0.025
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "ornate_medieval_mace",
+                       "file":  "lib/ornate_medieval_mace.glb",
+                       "trisIn":  14762,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  291996,
+                       "size":  [
+                                    0.095,
+                                    0.63,
+                                    0.102
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "ornate_mirror_01",
+                       "file":  "lib/ornate_mirror_01.glb",
+                       "trisIn":  14246,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  246008,
+                       "size":  [
+                                    0.486,
+                                    0.744,
+                                    0.026
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "ornate_war_hammer",
+                       "file":  "lib/ornate_war_hammer.glb",
+                       "trisIn":  5192,
+                       "trisOut":  5192,
+                       "parts":  1,
+                       "bytes":  245500,
+                       "size":  [
+                                    0.144,
+                                    0.711,
+                                    0.035
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "Ottoman_01",
+                       "file":  "lib/Ottoman_01.glb",
+                       "trisIn":  4240,
+                       "trisOut":  4240,
+                       "parts":  1,
+                       "bytes":  174756,
+                       "size":  [
+                                    0.885,
+                                    0.624,
+                                    0.621
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "painted_wooden_chair_01",
+                       "file":  "lib/painted_wooden_chair_01.glb",
+                       "trisIn":  724,
+                       "trisOut":  724,
+                       "parts":  1,
+                       "bytes":  102444,
+                       "size":  [
+                                    0.432,
+                                    0.956,
+                                    0.54
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "planter_pot_clay",
+                       "file":  "lib/planter_pot_clay.glb",
+                       "trisIn":  3080,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  140608,
+                       "size":  [
+                                    0.266,
+                                    0.222,
+                                    0.263
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "plastic_bottle_gallon",
+                       "file":  "lib/plastic_bottle_gallon.glb",
+                       "trisIn":  13728,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  116296,
+                       "size":  [
+                                    0.166,
+                                    0.274,
+                                    0.126
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "plastic_broom",
+                       "file":  "lib/plastic_broom.glb",
+                       "trisIn":  18736,
+                       "trisOut":  5998,
+                       "parts":  2,
+                       "bytes":  299192,
+                       "size":  [
+                                    0.416,
+                                    1.198,
+                                    0.567
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "plastic_jerrycan",
+                       "file":  "lib/plastic_jerrycan.glb",
+                       "trisIn":  7348,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  166944,
+                       "size":  [
+                                    0.268,
+                                    0.318,
+                                    0.341
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "plastic_thermos",
+                       "file":  "lib/plastic_thermos.glb",
+                       "trisIn":  5514,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  151056,
+                       "size":  [
+                                    0.141,
+                                    0.32,
+                                    0.109
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "plunger",
+                       "file":  "lib/plunger.glb",
+                       "trisIn":  3278,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  139456,
+                       "size":  [
+                                    0.172,
+                                    0.421,
+                                    0.172
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "portable_cassette_player",
+                       "file":  "lib/portable_cassette_player.glb",
+                       "trisIn":  13307,
+                       "trisOut":  2999,
+                       "parts":  2,
+                       "bytes":  235184,
+                       "size":  [
+                                    0.172,
+                                    0.13,
+                                    0.04
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "portable_searchlight",
+                       "file":  "lib/portable_searchlight.glb",
+                       "trisIn":  18802,
+                       "trisOut":  2999,
+                       "parts":  2,
+                       "bytes":  147616,
+                       "size":  [
+                                    0.165,
+                                    0.185,
+                                    0.253
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "potted_plant_01",
+                       "file":  "lib/potted_plant_01.glb",
+                       "trisIn":  176226,
+                       "trisOut":  11974,
+                       "parts":  2,
+                       "bytes":  644888,
+                       "size":  [
+                                    0.587,
+                                    1.35,
+                                    0.634
+                                ],
+                       "budget":  12000
+                   },
+                   {
+                       "id":  "potted_plant_02",
+                       "file":  "lib/potted_plant_02.glb",
+                       "trisIn":  69806,
+                       "trisOut":  11993,
+                       "parts":  2,
+                       "bytes":  581808,
+                       "size":  [
+                                    0.701,
+                                    0.841,
+                                    0.657
+                                ],
+                       "budget":  12000
+                   },
+                   {
+                       "id":  "pot_enamel_01",
+                       "file":  "lib/pot_enamel_01.glb",
+                       "trisIn":  11416,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  144612,
+                       "size":  [
+                                    0.263,
+                                    0.178,
+                                    0.18
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "propane_torch_02",
+                       "file":  "lib/propane_torch_02.glb",
+                       "trisIn":  2960,
+                       "trisOut":  2960,
+                       "parts":  1,
+                       "bytes":  182388,
+                       "size":  [
+                                    0.072,
+                                    0.4,
+                                    0.068
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "propane_torch",
+                       "file":  "lib/propane_torch.glb",
+                       "trisIn":  4848,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  167668,
+                       "size":  [
+                                    0.068,
+                                    0.328,
+                                    0.058
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "ratchet_wrench",
+                       "file":  "lib/ratchet_wrench.glb",
+                       "trisIn":  8796,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  139600,
+                       "size":  [
+                                    0.044,
+                                    0.246,
+                                    0.043
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "Rockingchair_01",
+                       "file":  "lib/Rockingchair_01.glb",
+                       "trisIn":  11866,
+                       "trisOut":  5999,
+                       "parts":  1,
+                       "bytes":  316912,
+                       "size":  [
+                                    0.708,
+                                    0.995,
+                                    0.833
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "rubber_boots",
+                       "file":  "lib/rubber_boots.glb",
+                       "trisIn":  56128,
+                       "trisOut":  6000,
+                       "parts":  2,
+                       "bytes":  208784,
+                       "size":  [
+                                    0.891,
+                                    0.373,
+                                    0.266
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "rusted_hacksaw",
+                       "file":  "lib/rusted_hacksaw.glb",
+                       "trisIn":  6546,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  194568,
+                       "size":  [
+                                    0.496,
+                                    0.109,
+                                    0.033
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "screwdrivers_02",
+                       "file":  "lib/screwdrivers_02.glb",
+                       "trisIn":  3548,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  174620,
+                       "size":  [
+                                    0.1,
+                                    0.027,
+                                    0.27
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "ship_pinnace",
+                       "file":  "lib/ship_pinnace.glb",
+                       "trisIn":  168317,
+                       "trisOut":  12090,
+                       "parts":  7,
+                       "bytes":  912916,
+                       "size":  [
+                                    9.527,
+                                    32.575,
+                                    39.789
+                                ],
+                       "budget":  12000
+                   },
+                   {
+                       "id":  "side_table_tall_01",
+                       "file":  "lib/side_table_tall_01.glb",
+                       "trisIn":  6408,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  245640,
+                       "size":  [
+                                    0.384,
+                                    0.761,
+                                    0.384
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "sledgehammer_01",
+                       "file":  "lib/sledgehammer_01.glb",
+                       "trisIn":  2596,
+                       "trisOut":  2596,
+                       "parts":  1,
+                       "bytes":  139516,
+                       "size":  [
+                                    0.208,
+                                    1.006,
+                                    0.09
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "small_oil_can_01",
+                       "file":  "lib/small_oil_can_01.glb",
+                       "trisIn":  16746,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  180692,
+                       "size":  [
+                                    0.266,
+                                    0.237,
+                                    0.104
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "Sofa_01",
+                       "file":  "lib/Sofa_01.glb",
+                       "trisIn":  4101,
+                       "trisOut":  4101,
+                       "parts":  1,
+                       "bytes":  175384,
+                       "size":  [
+                                    1.571,
+                                    0.797,
+                                    0.658
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "sofa_02",
+                       "file":  "lib/sofa_02.glb",
+                       "trisIn":  2728,
+                       "trisOut":  2728,
+                       "parts":  1,
+                       "bytes":  123000,
+                       "size":  [
+                                    1.807,
+                                    0.709,
+                                    0.818
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "sofa_03",
+                       "file":  "lib/sofa_03.glb",
+                       "trisIn":  8004,
+                       "trisOut":  8004,
+                       "parts":  2,
+                       "bytes":  325912,
+                       "size":  [
+                                    2.731,
+                                    1.118,
+                                    0.925
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "spinning_wheel_01",
+                       "file":  "lib/spinning_wheel_01.glb",
+                       "trisIn":  52023,
+                       "trisOut":  9944,
+                       "parts":  1,
+                       "bytes":  492612,
+                       "size":  [
+                                    0.489,
+                                    0.966,
+                                    1.025
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "standing_chalkboard_01",
+                       "file":  "lib/standing_chalkboard_01.glb",
+                       "trisIn":  2372,
+                       "trisOut":  2372,
+                       "parts":  2,
+                       "bytes":  172932,
+                       "size":  [
+                                    0.92,
+                                    1.509,
+                                    0.759
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "stationery_supplies",
+                       "file":  "lib/stationery_supplies.glb",
+                       "trisIn":  4412,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  170200,
+                       "size":  [
+                                    0.302,
+                                    0.164,
+                                    0.084
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "stick_grenade",
+                       "file":  "lib/stick_grenade.glb",
+                       "trisIn":  4612,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  148464,
+                       "size":  [
+                                    0.081,
+                                    0.379,
+                                    0.081
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "throw_pillows_01",
+                       "file":  "lib/throw_pillows_01.glb",
+                       "trisIn":  6362,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  277732,
+                       "size":  [
+                                    1.022,
+                                    0.45,
+                                    0.627
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "tire_pump",
+                       "file":  "lib/tire_pump.glb",
+                       "trisIn":  6572,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  146236,
+                       "size":  [
+                                    0.255,
+                                    0.58,
+                                    0.101
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "tongue_groove_pliers",
+                       "file":  "lib/tongue_groove_pliers.glb",
+                       "trisIn":  2694,
+                       "trisOut":  2694,
+                       "parts":  1,
+                       "bytes":  158260,
+                       "size":  [
+                                    0.063,
+                                    0.014,
+                                    0.244
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "treasure_chest",
+                       "file":  "lib/treasure_chest.glb",
+                       "trisIn":  103330,
+                       "trisOut":  8935,
+                       "parts":  1,
+                       "bytes":  453664,
+                       "size":  [
+                                    0.959,
+                                    0.619,
+                                    0.523
+                                ],
+                       "budget":  9000
+                   },
+                   {
+                       "id":  "trowel_01",
+                       "file":  "lib/trowel_01.glb",
+                       "trisIn":  5242,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  141696,
+                       "size":  [
+                                    0.099,
+                                    0.103,
+                                    0.347
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "Ukulele_01",
+                       "file":  "lib/Ukulele_01.glb",
+                       "trisIn":  8912,
+                       "trisOut":  2952,
+                       "parts":  1,
+                       "bytes":  219632,
+                       "size":  [
+                                    0.178,
+                                    0.527,
+                                    0.051
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_grandfather_clock_01",
+                       "file":  "lib/vintage_grandfather_clock_01.glb",
+                       "trisIn":  8582,
+                       "trisOut":  8582,
+                       "parts":  2,
+                       "bytes":  456756,
+                       "size":  [
+                                    0.626,
+                                    2.191,
+                                    0.427
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "vintage_hand_drill",
+                       "file":  "lib/vintage_hand_drill.glb",
+                       "trisIn":  8338,
+                       "trisOut":  2994,
+                       "parts":  1,
+                       "bytes":  249872,
+                       "size":  [
+                                    0.131,
+                                    0.486,
+                                    0.125
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_pocket_watch",
+                       "file":  "lib/vintage_pocket_watch.glb",
+                       "trisIn":  16098,
+                       "trisOut":  2997,
+                       "parts":  3,
+                       "bytes":  171060,
+                       "size":  [
+                                    0.061,
+                                    0.08,
+                                    0.014
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "vintage_suitcase",
+                       "file":  "lib/vintage_suitcase.glb",
+                       "trisIn":  16474,
+                       "trisOut":  9998,
+                       "parts":  2,
+                       "bytes":  478244,
+                       "size":  [
+                                    1.608,
+                                    0.568,
+                                    0.239
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "wall_clock",
+                       "file":  "lib/wall_clock.glb",
+                       "trisIn":  3658,
+                       "trisOut":  2997,
+                       "parts":  2,
+                       "bytes":  173344,
+                       "size":  [
+                                    0.32,
+                                    0.32,
+                                    0.047
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "watering_can_metal_01",
+                       "file":  "lib/watering_can_metal_01.glb",
+                       "trisIn":  11837,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  175700,
+                       "size":  [
+                                    0.191,
+                                    0.197,
+                                    0.452
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wicker_basket_01",
+                       "file":  "lib/wicker_basket_01.glb",
+                       "trisIn":  22276,
+                       "trisOut":  2902,
+                       "parts":  1,
+                       "bytes":  192784,
+                       "size":  [
+                                    0.383,
+                                    0.117,
+                                    0.295
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wicker_basket_02",
+                       "file":  "lib/wicker_basket_02.glb",
+                       "trisIn":  17850,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  184644,
+                       "size":  [
+                                    0.375,
+                                    0.218,
+                                    0.271
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wine_barrel_01",
+                       "file":  "lib/wine_barrel_01.glb",
+                       "trisIn":  10820,
+                       "trisOut":  6000,
+                       "parts":  1,
+                       "bytes":  340152,
+                       "size":  [
+                                    0.742,
+                                    0.871,
+                                    0.756
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "wine_bottles_01",
+                       "file":  "lib/wine_bottles_01.glb",
+                       "trisIn":  28848,
+                       "trisOut":  5990,
+                       "parts":  12,
+                       "bytes":  362896,
+                       "size":  [
+                                    0.676,
+                                    0.331,
+                                    0.081
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "wooden_axe_02",
+                       "file":  "lib/wooden_axe_02.glb",
+                       "trisIn":  2218,
+                       "trisOut":  2218,
+                       "parts":  1,
+                       "bytes":  140072,
+                       "size":  [
+                                    0.051,
+                                    0.704,
+                                    0.226
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "wooden_axe_03",
+                       "file":  "lib/wooden_axe_03.glb",
+                       "trisIn":  3886,
+                       "trisOut":  3886,
+                       "parts":  1,
+                       "bytes":  186016,
+                       "size":  [
+                                    0.05,
+                                    0.632,
+                                    0.158
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "wooden_axe",
+                       "file":  "lib/wooden_axe.glb",
+                       "trisIn":  3348,
+                       "trisOut":  3348,
+                       "parts":  1,
+                       "bytes":  178492,
+                       "size":  [
+                                    0.047,
+                                    0.63,
+                                    0.214
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "wooden_broom",
+                       "file":  "lib/wooden_broom.glb",
+                       "trisIn":  14258,
+                       "trisOut":  9999,
+                       "parts":  2,
+                       "bytes":  507776,
+                       "size":  [
+                                    0.49,
+                                    1.454,
+                                    0.113
+                                ],
+                       "budget":  10000
+                   },
+                   {
+                       "id":  "wooden_bucket_01",
+                       "file":  "lib/wooden_bucket_01.glb",
+                       "trisIn":  5116,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  180612,
+                       "size":  [
+                                    0.367,
+                                    0.55,
+                                    0.342
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wooden_bucket_02",
+                       "file":  "lib/wooden_bucket_02.glb",
+                       "trisIn":  7252,
+                       "trisOut":  5999,
+                       "parts":  1,
+                       "bytes":  285368,
+                       "size":  [
+                                    0.615,
+                                    0.35,
+                                    0.616
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "wooden_cutting_board",
+                       "file":  "lib/wooden_cutting_board.glb",
+                       "trisIn":  3520,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  167940,
+                       "size":  [
+                                    0.45,
+                                    0.041,
+                                    0.247
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wooden_hammer_01",
+                       "file":  "lib/wooden_hammer_01.glb",
+                       "trisIn":  3617,
+                       "trisOut":  2999,
+                       "parts":  1,
+                       "bytes":  150176,
+                       "size":  [
+                                    0.112,
+                                    0.279,
+                                    0.023
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wooden_handle_saber",
+                       "file":  "lib/wooden_handle_saber.glb",
+                       "trisIn":  4031,
+                       "trisOut":  4031,
+                       "parts":  1,
+                       "bytes":  189880,
+                       "size":  [
+                                    0.026,
+                                    0.935,
+                                    0.123
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "wooden_lantern_01",
+                       "file":  "lib/wooden_lantern_01.glb",
+                       "trisIn":  8321,
+                       "trisOut":  2997,
+                       "parts":  2,
+                       "bytes":  190784,
+                       "size":  [
+                                    0.221,
+                                    0.53,
+                                    0.235
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "wooden_stool_02",
+                       "file":  "lib/wooden_stool_02.glb",
+                       "trisIn":  11146,
+                       "trisOut":  3000,
+                       "parts":  1,
+                       "bytes":  173884,
+                       "size":  [
+                                    0.265,
+                                    0.182,
+                                    0.183
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "fancy_picture_frame_01",
+                       "file":  "lib/fancy_picture_frame_01.glb",
+                       "trisIn":  938,
+                       "trisOut":  938,
+                       "parts":  2,
+                       "bytes":  118336,
+                       "size":  [
+                                    0.603,
+                                    0.464,
+                                    0.02
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "fancy_picture_frame_02",
+                       "file":  "lib/fancy_picture_frame_02.glb",
+                       "trisIn":  35102,
+                       "trisOut":  6000,
+                       "parts":  2,
+                       "bytes":  296596,
+                       "size":  [
+                                    0.661,
+                                    0.771,
+                                    0.089
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "hanging_picture_frame_01",
+                       "file":  "lib/hanging_picture_frame_01.glb",
+                       "trisIn":  2586,
+                       "trisOut":  2586,
+                       "parts":  3,
+                       "bytes":  147676,
+                       "size":  [
+                                    0.594,
+                                    0.841,
+                                    0.016
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "hanging_picture_frame_02",
+                       "file":  "lib/hanging_picture_frame_02.glb",
+                       "trisIn":  3678,
+                       "trisOut":  3678,
+                       "parts":  3,
+                       "bytes":  237036,
+                       "size":  [
+                                    0.752,
+                                    0.5,
+                                    0.033
+                                ],
+                       "budget":  6000
+                   },
+                   {
+                       "id":  "hanging_picture_frame_03",
+                       "file":  "lib/hanging_picture_frame_03.glb",
+                       "trisIn":  24348,
+                       "trisOut":  2989,
+                       "parts":  3,
+                       "bytes":  217120,
+                       "size":  [
+                                    0.385,
+                                    0.502,
+                                    0.032
+                                ],
+                       "budget":  3000
+                   },
+                   {
+                       "id":  "standing_picture_frame_02",
+                       "file":  "lib/standing_picture_frame_02.glb",
+                       "trisIn":  2986,
+                       "trisOut":  2986,
+                       "parts":  3,
+                       "bytes":  204684,
+                       "size":  [
+                                    0.102,
+                                    0.266,
+                                    0.217
+                                ],
+                       "budget":  3000
+                   }
+               ]
+}

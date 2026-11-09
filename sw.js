@@ -1,7 +1,11 @@
 // ObjectSleuth service worker: stores every app file on the device so the game runs 100% offline.
 // IMPORTANT: change VERSION whenever any app file changes. That makes devices download the new files.
-const VERSION = 'v15.1'; // = APP_VERSION in js/main.js (one number per published build)
+// v16 (OS-33: 3.2): the imported models live in their OWN store ("objectsleuth-models"), which is kept
+// across versions – an update never downloads the model library again. Models are stored the first time
+// a round uses them, and the game fills in the rest in the background (main.js fillLibrary).
+const VERSION = 'v16'; // = APP_VERSION in js/main.js (one number per published build)
 const CACHE = 'objectsleuth-' + VERSION;
+const MODELS = 'objectsleuth-models';
 
 const FILES = [
   './',
@@ -15,17 +19,23 @@ const FILES = [
   './js/art/kit.js',
   './js/art/styles.js',
   './js/art/skins.js',
+  './js/art/batch.js',
   './js/scene/study.js',
+  './js/scene/wallart.js',
   './js/scene/lighting.js',
   './js/scene/sun.js',
   './js/scene/softshadows.js',
   './js/game/targets.js',
   './js/game/objects.js',
-  './js/art/batch.js',
+  './js/game/library.js',
+  './js/game/assetlib.js',
+  './js/game/session.js',
   './vendor/three/three.module.js',
   './vendor/three/three.core.js',
   './vendor/three/addons/geometries/RoundedBoxGeometry.js',
   './vendor/three/addons/math/SimplexNoise.js',
+  './vendor/three/addons/loaders/GLTFLoader.js',
+  './vendor/three/addons/utils/SkeletonUtils.js',
   './vendor/three/addons/postprocessing/EffectComposer.js',
   './vendor/three/addons/postprocessing/GTAOPass.js',
   './vendor/three/addons/utils/BufferGeometryUtils.js',
@@ -57,7 +67,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('objectsleuth-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('objectsleuth-') && k !== CACHE && k !== MODELS).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -66,6 +76,17 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (url.pathname.includes('/assets/models/lib/')) {
+    // a model: from its store (the ?v= number changes when a model file changes), else download and keep it
+    event.respondWith(
+      caches.open(MODELS).then((cache) => cache.match(req).then((hit) => hit || fetch(req).then((res) => {
+        if (res.ok && url.searchParams.has('v')) cache.put(req, res.clone());
+        return res;
+      })))
+    );
+    return;
+  }
   event.respondWith(
     caches.open(CACHE).then((cache) =>
       cache.match(req, { ignoreSearch: true }).then((hit) => {
