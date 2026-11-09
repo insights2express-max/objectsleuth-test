@@ -3,6 +3,7 @@ import * as THREE from '../vendor/three/three.module.js';
 import { buildStudy } from './scene/study.js';
 import { Lighting, PRESETS } from './scene/lighting.js';
 import { ViewControls } from './core/controls.js';
+import { LookControls } from './core/look.js';
 import { StyleSampler, STYLES } from './art/styles.js';
 import { EffectComposer } from '../vendor/three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from '../vendor/three/addons/postprocessing/RenderPass.js';
@@ -14,12 +15,14 @@ import { GTAOPass } from '../vendor/three/addons/postprocessing/GTAOPass.js';
 import { installGradedShadows } from './scene/softshadows.js';
 import { Targets, LEVELS } from './game/targets.js';
 import { StaticBatcher } from './art/batch.js';
+import { rng } from './core/random.js';
 
 // VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
 // with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 const BUILD = 'Draft 1';
 const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 // ---------- renderer & scene ----------
 const graded = installGradedShadows(); // LIGHT LAB: must run before anything is drawn
@@ -32,29 +35,36 @@ renderer.shadowMap.autoUpdate = false;   // v12: shadows are drawn once and reus
 renderer.toneMapping = THREE.NeutralToneMapping;
 
 const scene = new THREE.Scene();
-// near/far hug the room (camera is 40 m away): finer depth steps, so touching surfaces don't flicker on tablets
-const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 25, 60);
+// DIORAMA camera: near/far hug the room (camera is 40 m away): finer depth steps, so touching surfaces
+// don't flicker on tablets
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 25, 60);
+// v15 STAGE / WALK-IN camera: a real lens (things further away look smaller)
+const perspCam = new THREE.PerspectiveCamera(60, 1, 0.05, 30);
+let camera = orthoCam;                    // the camera of the current view
 const study = buildStudy();
 scene.add(study.root);
 const lighting = new Lighting(scene, renderer, study.fx, study.compassTurn);
 
 // Isometric-style view from the front-right, looking into the room.
-const controls = new ViewControls(camera, canvas, { maxZoom: 20 });
-controls.setView(new THREE.Vector3(0, 1.2, 0), new THREE.Vector3(1, 0.95, 1.2), 40); // = VIEW_DIR
-controls.fit(study.bounds);
+const VIEW_DIR = new THREE.Vector3(1, 0.95, 1.2);
+const ortho = new ViewControls(orthoCam, canvas, { maxZoom: 20 });
+ortho.setView(new THREE.Vector3(0, 1.2, 0), VIEW_DIR, 40);
+ortho.fit(study.bounds);
+const look = new LookControls(perspCam, canvas, { maxZoom: 20 });
+let controls = ortho;                     // the controls of the current view
 
 // ---------- STYLE SAMPLER (test feature) ----------
 const fx = study.fx;
-// FIRST TARGET OBJECT TEST: added before the style sampler, so they take on each art style too.
-const VIEW_DIR = new THREE.Vector3(1, 0.95, 1.2);
+// Target Objects are added before the style sampler, so they take on each art style too.
 const targets = new Targets(study.root, study.fx, VIEW_DIR);
 const batcher = new StaticBatcher(study.root);
-const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, ...fx.windowMats]);
+const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, ...fx.windowMats, fx.overheadMat]);
 
 // Miniature filter: blurs the top and bottom of the picture (tilt-shift) and adds a little
 // extra color, so the room looks like a tiny model photographed up close.
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 }) /* edge-smoothing 2× (OS-19: 3.3) */);
-composer.addPass(new RenderPass(scene, camera));
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
 
 // LIGHT LAB: contact shading ("ambient occlusion"): darkens corners, gaps and where objects meet.
 // Runs at half resolution on high-density screens (iPad), which looks the same and costs a quarter.
@@ -91,6 +101,16 @@ gtao._overrideVisibility = function () {
     }
   });
 };
+// v15: contact shading follows whichever camera the current view uses
+function setAOCamera(cam) {
+  gtao.camera = cam;
+  const persp = cam.isPerspectiveCamera ? 1 : 0;
+  for (const m of [gtao.gtaoMaterial, gtao.depthRenderMaterial]) {
+    if (m.defines.PERSPECTIVE_CAMERA !== persp) { m.defines.PERSPECTIVE_CAMERA = persp; m.needsUpdate = true; }
+    if (m.uniforms.cameraNear) { m.uniforms.cameraNear.value = cam.near; m.uniforms.cameraFar.value = cam.far; }
+  }
+  gtao.aoDirty = true;
+}
 composer.addPass(gtao);
 const tiltH = new ShaderPass(HorizontalTiltShiftShader), tiltV = new ShaderPass(VerticalTiltShiftShader);
 tiltH.uniforms.r.value = tiltV.uniforms.r.value = 0.5;
@@ -117,7 +137,8 @@ function resize() {
   const blur = 3.5 * renderer.getPixelRatio();
   tiltH.uniforms.h.value = blur / (w * renderer.getPixelRatio());
   tiltV.uniforms.v.value = blur / (h * renderer.getPixelRatio());
-  controls.resize();
+  ortho.resize();
+  look.resize();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -135,6 +156,84 @@ try { saved = localStorage.getItem(STORE) || 'auto'; } catch (e) { /* ignore */ 
 choosePreset(PRESETS[saved] ? saved : 'auto', true);
 presetButtons.forEach((b) => b.addEventListener('click', () => choosePreset(b.dataset.preset)));
 
+// ---------- v15 VIEWS (M1.8): Diorama · Stage · Walk-in ----------
+// Each view cuts away the walls that would stand between the camera and the room.
+const VIEWS = {
+  diorama: { label: 'Diorama', cut: ['front', 'right', 'ceiling'] },
+  stage: { label: 'Stage', cut: ['front'],
+    pose: { pos: new THREE.Vector3(0.3, 2.55, 6.9), look: new THREE.Vector3(0.1, 0.85, -1.0), fov: 46, yawLim: [-0.6, 0.6], pitchLim: [-0.85, 0.35] } },
+  walk: { label: 'Walk-in', cut: [],
+    pose: { pos: new THREE.Vector3(3.0, 1.6, 1.9), look: new THREE.Vector3(-3.2, 0.95, -2.4), fov: 62 } },
+};
+let view = 'diorama', cutNow = new Set(VIEWS.diorama.cut);
+// show or hide the walls a view cuts away (the batched copies and the original pieces)
+function setCut(tags) {
+  cutNow = new Set(tags);
+  for (const o of fx.cutMeshes) {
+    const hide = cutNow.has(o.userData.cutTag);
+    o.userData.cutHidden = hide;
+    if (!o.userData.batched) o.visible = !hide;
+  }
+  for (const m of batcher.merged) if (m.userData.cutTag) m.visible = !cutNow.has(m.userData.cutTag);
+  gtao.aoDirty = true;
+}
+// merge the fixed pieces again (after a style change or a new round), then re-apply the view's cut
+function rebatch() {
+  const keep = [...cutNow];
+  setCut([]);                     // (hidden pieces would be left out of the batches)
+  batcher.build();
+  frontFaceShadows();
+  setCut(keep);
+  renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true;
+}
+const viewButtons = document.querySelectorAll('[data-view]');
+let walkHintShown = false;
+function setView(name, remember = true) {
+  if (!VIEWS[name]) name = 'diorama';
+  view = name;
+  const V = VIEWS[name];
+  ortho.active = name === 'diorama';
+  look.active = !ortho.active;
+  controls = ortho.active ? ortho : look;
+  camera = ortho.active ? orthoCam : perspCam;
+  if (V.pose) look.configure(V.pose);
+  look.onDoubleTap = name === 'walk' ? walkHere : null;
+  renderPass.camera = camera;
+  setAOCamera(camera);
+  setCut(V.cut);
+  viewButtons.forEach((b) => b.classList.toggle('on', b.dataset.view === name));
+  zoomLabel.textContent = '×' + controls.zoom.toFixed(1);
+  layoutPanel();
+  lastMove = performance.now(); busyUntil = performance.now() + 600;
+  if (name === 'walk' && !walkHintShown) { walkHintShown = true; toast('🚶 Drag to look around · double-tap the floor to walk there · pinch to zoom'); }
+  if (remember) try { localStorage.setItem('objectsleuth.view', name); } catch (e) { /* ignore */ }
+}
+viewButtons.forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+// WALK-IN: double-tap the floor (or rug) to step there – never into furniture or walls
+function walkHere(cx, cy) {
+  if (look.zoom > 1.6) return false;              // zoomed in: a double-tap zooms further instead
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(screenToNdc(cx, cy), perspCam);
+  const hit = ray.intersectObjects(targets.solids(), false)[0];
+  if (!hit || hit.point.y > 0.08 || targets.normalOf(hit).y < 0.9) return false;   // not the floor
+  const from = look.pos.clone(), to = new THREE.Vector3(clamp(hit.point.x, -3.55, 3.55), from.y, clamp(hit.point.z, -2.55, 2.55));
+  // keep 35 cm clear of anything at chest and eye height; step back towards where we are if needed
+  const solids = targets.solids(), dirs = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new THREE.Vector3(Math.cos(k * Math.PI / 4), 0, Math.sin(k * Math.PI / 4)));
+  const free = (p) => [1.1, 1.6].every((y) => dirs.every((d) => !targets.cast(new THREE.Vector3(p.x, y, p.z), d, 0.35, solids).length));
+  let p = to.clone();
+  for (let i = 0; i < 10 && !free(p); i++) p.lerp(from, 0.2);
+  if (!free(p)) { toast('No room to stand there'); return true; }
+  look.walkTo(p);
+  return true;
+}
+// a short note at the top of the screen (fades by itself; plain page text, no 3D redraw)
+let toastTimer = 0;
+function toast(text) {
+  const t = $('toast');
+  t.textContent = text; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3800);
+}
+
 // ---------- STYLE SAMPLER buttons ----------
 const styleSel = $('style'), miniBtn = $('mini');
 Object.entries(STYLES).filter(([, s]) => !s.parked).forEach(([key, s]) => styleSel.add(new Option(s.label, key)));
@@ -149,9 +248,7 @@ function frontFaceShadows() {
 function chooseStyle(name) {
   batcher.clear();      // v12: un-merge, re-dress in the new style, merge again
   sampler.set(name);
-  batcher.build();
-  frontFaceShadows();
-  renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true;  // new materials and shapes: draw shadows and shading again
+  rebatch();
   styleSel.value = sampler.name;
   if (typeof updatePills === 'function') try { updatePills(); } catch (e) { /* (not ready yet) */ }
   try { localStorage.setItem('objectsleuth.style', sampler.name); } catch (e) { /* ignore */ }
@@ -166,9 +263,10 @@ function setMiniature(on) {
 styleSel.addEventListener('change', () => { chooseStyle(styleSel.value); styleSel.blur(); });
 miniBtn.addEventListener('click', () => setMiniature(!miniature));
 try {
-  chooseStyle(localStorage.getItem('objectsleuth.style') || 'lowpoly');
+  sampler.set(localStorage.getItem('objectsleuth.style') || 'lowpoly');   // (merged once the first round is laid out)
+  styleSel.value = sampler.name;
   setMiniature(localStorage.getItem('objectsleuth.mini') === '1');
-} catch (e) { chooseStyle('lowpoly'); }
+} catch (e) { sampler.set('lowpoly'); }
 
 // ---------- QUALITY presets (v12; replaces the Light Lab switches) ----------
 // Contact shading stays on in every preset (JM's top priority, OS-15: 1.1.1). What changes:
@@ -236,132 +334,214 @@ $('zoom-out').addEventListener('click', () => controls.zoomBy(0.5));
 $('zoom-reset').addEventListener('click', () => controls.reset());
 const zoomLabel = $('zoom-label');
 let lastMove = -1e9; // when the view last moved (rest mode, see the main loop)
-controls.onChange = (c) => { zoomLabel.textContent = '×' + c.zoom.toFixed(1); gtao.aoDirty = true; lastMove = performance.now(); };
-controls.apply();
+let busyUntil = 0;   // full speed until then (see the main loop)
+ortho.onChange = look.onChange = (c) => {
+  if (c !== controls) return;
+  zoomLabel.textContent = '×' + c.zoom.toFixed(1); gtao.aoDirty = true; lastMove = performance.now();
+};
+ortho.apply();
 
 $('build').textContent = APP_VERSION + ' · ' + BUILD;
 $('ver').textContent = APP_VERSION;
 
-// Test shortcuts in the address, e.g.  ?light=night&zoom=8&focus=0,0.4,-2.6
+// Test shortcuts in the address, e.g.  ?light=night&zoom=8&focus=0,0.4,-2.6&view=walk
 const params = new URLSearchParams(window.location.search);
 if (PRESETS[params.get('light')]) choosePreset(params.get('light'), true);
 if (params.get('time')) { choosePreset('auto', true); lighting.testHours = Number(params.get('time')); }
 if (params.get('cloud')) lighting.clouds.fixed = Number(params.get('cloud'));
-if (params.get('style')) chooseStyle(params.get('style'));
+if (params.get('style')) sampler.set(params.get('style'));
 if (params.get('mini')) setMiniature(params.get('mini') === '1');
 for (const k of ['ao', 'soft', 'fire']) if (params.get(k)) setLab(k, params.get(k) === '1');
-if (params.get('zoom')) {
-  const [x, y, z] = (params.get('focus') || '0,1.2,0').split(',').map(Number);
-  controls.focusOn(new THREE.Vector3(x, y, z), Number(params.get('zoom')));
-}
 
-// ---------- FIND panel (v14): drag by its header, resize by its grip, fold with the chevron ----------
+// ---------- FIND panel (v15): floats over the Scene; drag, resize, fold ----------
+// Modes: 'side' (one column, anywhere left/right) · 'top' / 'bottom' (docked to that edge, 2 rows of 3).
+// Dragging the title bar near the top or bottom edge docks it there; dragging it back into the
+// middle of the screen makes it a side panel again (OS-20: 1.2, 1.5.3).
 const panel = $('findpanel'), findList = $('findlist'), findMsg = $('findmsg');
-const fpHead = $('fp-head'), fpGrip = $('fp-grip'), fpToggle = $('fp-toggle');
+const fpHead = $('fp-head'), fpToggle = $('fp-toggle'), grips = [$('fp-grip-l'), $('fp-grip-r')];
 targets.onChange = (tg) => {
   findList.innerHTML = '';
-  for (const it of tg.items) {
+  tg.list.forEach((it, i) => {
     const li = document.createElement('li');
-    li.className = it.revealed ? 'revealed' : it.found ? 'found' : '';
-    li.innerHTML = `<span class="ico"><span>${it.icon}</span></span><span class="nm"></span><span class="st">${it.revealed ? 'REVEALED' : it.found ? 'FOUND' : ''}</span>`;
+    li.dataset.i = i;
+    li.className = it.found ? 'found' : it.revealed ? 'revealed' : it.ringed ? 'ringed' : '';
+    li.title = 'Double-tap: T.O. Zoom (hint) · double-tap again: T.O. Reveal';
+    li.innerHTML = `<span class="ico"><span>${it.icon}</span></span><span class="nm"></span><span class="st">${it.found ? 'FOUND' : it.revealed ? 'REVEALED' : it.ringed ? 'TAP IT' : ''}</span>`;
     li.querySelector('.nm').textContent = it.name;
     findList.appendChild(li);
-  }
-  const done = tg.items.filter((it) => it.found).length, total = tg.items.length;
-  $('fp-done').textContent = `${done} / ${total}`;
+  });
+  const total = tg.list.length, found = tg.list.filter((it) => it.found).length, rev = tg.list.filter((it) => it.revealed).length, done = found + rev;
+  $('fp-done').textContent = `${found} / ${total}` + (rev ? ` · 👁️ ${rev}` : '');
   $('fp-count').textContent = `${done} / ${total}`;
-  $('fp-bar').style.width = `${(100 * done) / total}%`;
-  findMsg.textContent = done === total ? "CONGRATULATIONS…you've discovered all the Target Objects to complete this Scene! Restart to play again." : '';
+  const bar = $('fp-bar');
+  bar.style.width = `${(100 * done) / total}%`;
+  bar.style.background = done ? `linear-gradient(90deg, var(--green) ${(100 * found) / done}%, #8d929b ${(100 * found) / done}%)` : '';
+  findMsg.textContent = done < total ? '' : rev
+    ? `CONGRATULATIONS…you've completed this Scene: ${found} found, ${rev} revealed. Restart to play again.`
+    : "CONGRATULATIONS…you've discovered all the Target Objects to complete this Scene! Restart to play again.";
   findMsg.hidden = done !== total;
   layoutPanel();
 };
 // Where the panel is and how it is laid out. Remembered only within this Scene Instance.
-const fp = { x: 0, y: 70, w: 300, collapsed: false, edge: false, placed: false };
+const fp = { mode: 'side', x: 0, y: 0, wSide: 300, wEdge: 600, collapsed: false, placed: false };
+const MIN_W = { side: 150, edge: 400 };          // ≈ 5 letters of each name stay visible (OS-20: 1.3.1.2)
+const topLimit = () => Math.round($('topbar').getBoundingClientRect().bottom + 8);
+const BOTTOM_GAP = 44;                           // (keeps the build / fps label at the bottom left readable)
 function defaultsForScreen() {
-  const vw = window.innerWidth, vh = window.innerHeight, landscape = vw >= vh;
-  fp.collapsed = !landscape;                       // portrait: folded, at the bottom, list in rows
-  fp.w = landscape ? Math.min(300, vw * 0.3) : Math.min(560, vw - 24);
-  fp.x = landscape ? vw - fp.w - 12 : (vw - fp.w) / 2;
-  fp.y = landscape ? 70 : vh - 140;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  fp.collapsed = false;
+  if (vw >= vh) { // landscape: right side, one column, open
+    fp.mode = 'side';
+    fp.wSide = Math.max(MIN_W.side, Math.min(300, vw * 0.3));
+    fp.x = vw - fp.wSide - 12; fp.y = topLimit();
+  } else {       // portrait: docked at the bottom, 2 rows of 3, clear of the zoom buttons
+    fp.mode = 'bottom';
+    fp.wEdge = Math.max(MIN_W.edge, Math.min(640, vw - 290));
+    fp.x = 12;
+  }
   fp.placed = true;
 }
 function placeTools() { // the tool pills sit just under the top bar (which wraps on narrow screens)
-  const tb = document.getElementById('topbar').getBoundingClientRect();
-  document.getElementById('tools').style.top = `${Math.round(tb.bottom + 8)}px`;
+  $('tools').style.top = `${topLimit()}px`;
 }
 function layoutPanel() {
   placeTools();
   if (!fp.placed) defaultsForScreen();
-  const vw = window.innerWidth, vh = window.innerHeight;
+  const vw = window.innerWidth, vh = window.innerHeight, top = topLimit(), edge = fp.mode !== 'side';
   panel.classList.toggle('collapsed', fp.collapsed);
+  panel.classList.toggle('edge', edge);
+  panel.classList.toggle('side', !edge);
   fpToggle.setAttribute('aria-expanded', String(!fp.collapsed));
-  panel.style.width = fp.collapsed ? 'auto' : `${fp.w}px`;
+  const key = edge ? 'wEdge' : 'wSide';
+  fp[key] = clamp(fp[key], Math.min(MIN_W[edge ? 'edge' : 'side'], vw - 16), vw - 16);
+  panel.style.width = fp.collapsed ? 'auto' : `${fp[key]}px`;
+  panel.style.maxHeight = `${Math.max(120, edge ? vh * 0.5 : vh - Math.max(top, fp.y) - 150)}px`;
+  // docked at the bottom: stay clear of the Reveal + zoom buttons (bottom right) when there's room
+  if (fp.mode === 'bottom' && !fp.collapsed) {
+    const bars = Math.max($('hintbar').offsetWidth, $('zoombar').offsetWidth) + 28;
+    const room = vw - bars - 8;
+    if (room >= MIN_W.edge) { fp.wEdge = Math.min(fp.wEdge, room); panel.style.width = `${fp.wEdge}px`; }
+  }
   const r0 = panel.getBoundingClientRect();
-  fp.x = Math.min(Math.max(0, fp.x), Math.max(0, vw - r0.width));
-  fp.y = Math.min(Math.max(0, fp.y), Math.max(0, vh - r0.height));
+  const rightEdge = fp.mode === 'bottom' && !fp.collapsed && vw - Math.max($('hintbar').offsetWidth, $('zoombar').offsetWidth) - 28 - 8 >= r0.width
+    ? vw - Math.max($('hintbar').offsetWidth, $('zoombar').offsetWidth) - 28 : vw - 8;
+  fp.x = clamp(fp.x, 8, Math.max(8, rightEdge - r0.width));
+  if (fp.mode === 'top') fp.y = top;
+  else if (fp.mode === 'bottom') fp.y = vh - r0.height - BOTTOM_GAP;
+  else fp.y = clamp(fp.y, top, Math.max(top, vh - r0.height - 8));
   panel.style.left = `${fp.x}px`;
   panel.style.top = `${fp.y}px`;
-  const r = panel.getBoundingClientRect(), cxp = r.left + r.width / 2, cyp = r.top + r.height / 2;
-  // near the top or bottom: a horizontal list (2 rows of 3); at the sides: one column
-  fp.edge = cyp < vh * 0.22 || cyp > vh * 0.78;
-  panel.classList.toggle('edge', fp.edge);
-  panel.classList.toggle('side', !fp.edge);
-  fpGrip.className = 'fp-grip ' + (cxp > vw / 2 ? 'left' : 'right');
-  // frame the room in the space the panel leaves free
-  const pad = { left: 0, right: 0, top: 0, bottom: 0 };
-  if (!fp.collapsed && r.width > 40) {
-    if (fp.edge) { if (cyp < vh / 2) pad.top = r.bottom; else pad.bottom = vh - r.top; }
-    else if (cxp > vw / 2) pad.right = vw - r.left; else pad.left = r.right;
+  // resize grips: both sides when docked; the inner side only for a side panel
+  const r = panel.getBoundingClientRect(), right = r.left + r.width / 2 > vw / 2;
+  grips[0].hidden = fp.collapsed || (!edge && !right);
+  grips[1].hidden = fp.collapsed || (!edge && right);
+  // the panel floats over the room: zoomed in, the view may pan further on the panel's side (OS-20: 1.3.1.3)
+  const cover = { left: 0, right: 0, top: 0, bottom: 0 };
+  if (!fp.collapsed) {
+    if (fp.mode === 'top') cover.top = r.bottom; else if (fp.mode === 'bottom') cover.bottom = vh - r.top;
+    else if (right) cover.right = vw - r.left; else cover.left = r.right;
   }
-  const p = controls.pad;
-  if (p.left !== pad.left || p.right !== pad.right || p.top !== pad.top || p.bottom !== pad.bottom) {
-    controls.pad = pad;
-    controls.resize();
-  }
+  ortho.cover = cover;
+  ortho.apply();
 }
-function dragOn(el, onMove, onEnd) { // pointer drag helper (mouse, pen and touch)
+function dragOn(el, onMove, onStart) { // pointer drag helper (mouse, pen and touch)
   el.addEventListener('pointerdown', (e) => {
     if (e.target.closest('button') && el === fpHead) return;
     e.preventDefault(); e.stopPropagation();
     el.setPointerCapture(e.pointerId);
     let lx = e.clientX, ly = e.clientY;
-    const move = (ev) => { onMove(ev.clientX - lx, ev.clientY - ly); lx = ev.clientX; ly = ev.clientY; };
-    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); if (onEnd) onEnd(); };
+    if (onStart) onStart(e);
+    const move = (ev) => { onMove(ev.clientX - lx, ev.clientY - ly, ev); lx = ev.clientX; ly = ev.clientY; };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
   });
 }
-dragOn(fpHead, (dx, dy) => { fp.x += dx; fp.y += dy; layoutPanel(); });
-dragOn(fpGrip, (dx) => {
-  const left = fpGrip.classList.contains('left');
-  const w = Math.max(12, Math.min(window.innerWidth * 0.7, fp.w + (left ? -dx : dx)));
-  if (left) fp.x -= w - fp.w;
-  fp.w = w;
+// moving: the pointer's height decides the mode (with some slack, so it doesn't flip back and forth)
+let grab = { x: 0, y: 0 };
+dragOn(fpHead, (dx, dy, ev) => {
+  const vh = window.innerHeight, top = topLimit(), py = ev.clientY;
+  let mode = fp.mode;
+  if (py < top + 40) mode = 'top';
+  else if (py > vh - 70) mode = 'bottom';
+  else if (mode !== 'side' && py > top + 110 && py < vh - 140) mode = 'side';
+  if (mode !== fp.mode) {
+    const w = mode === 'side' ? fp.wSide : fp.wEdge;
+    grab.x = clamp(grab.x, 20, w - 70);
+    fp.mode = mode;
+  }
+  fp.x = ev.clientX - grab.x;
+  if (mode === 'side') fp.y = py - grab.y;
   layoutPanel();
-});
+}, (e) => { const r = panel.getBoundingClientRect(); grab = { x: e.clientX - r.left, y: e.clientY - r.top }; });
+// resizing from either grip (wider or narrower; never narrower than about 5 letters per name)
+grips.forEach((g, i) => dragOn(g, (dx) => {
+  const key = fp.mode === 'side' ? 'wSide' : 'wEdge', min = MIN_W[fp.mode === 'side' ? 'side' : 'edge'];
+  const w = clamp(fp[key] + (i === 0 ? -dx : dx), Math.min(min, window.innerWidth - 16), window.innerWidth - 16);
+  if (i === 0) fp.x -= w - fp[key];
+  fp[key] = w;
+  layoutPanel();
+}));
 fpToggle.addEventListener('click', () => { fp.collapsed = !fp.collapsed; layoutPanel(); });
 window.addEventListener('resize', () => { fp.placed = false; layoutPanel(); });
 
-// ---------- tapping: find an object, or dismiss revealed ones ----------
+// ---------- T.O. ZOOM (OS-20: 2.1.1): double-tap a name in the list ----------
+//   1st double-tap: the view glides to ×5, roughly centred on that object (a hint – no ring)
+//   double-tap the same name again, as the very next action: T.O. REVEAL (a ring, like Reveal 1)
+let armed = null, lastLi = null;
+findList.addEventListener('pointerup', (e) => {
+  const li = e.target.closest('li');
+  if (!li) return;
+  const it = targets.list[Number(li.dataset.i)], now = performance.now();
+  if (lastLi && lastLi.it === it && now - lastLi.t < 450) { lastLi = null; toZoom(it); } else lastLi = { it, t: now };
+});
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#findlist li')) { armed = null; lastLi = null; } }, true);
+function toZoom(it) {
+  if (!it || !it.form || targets.resolved(it)) return;
+  if (armed === it) { armed = null; targets.reveal(1, it); return; }        // T.O. REVEAL
+  const p = targets.focusPoint(it);
+  if (!p) return;
+  // "approximate": up to ~12 % of the zoomed view off-centre, in a random direction
+  const toCam = targets.towardCam(p), side = new THREE.Vector3().crossVectors(toCam, new THREE.Vector3(0, 1, 0)).normalize();
+  const up = new THREE.Vector3().crossVectors(side, toCam).normalize();
+  const span = Math.min(window.innerWidth, window.innerHeight) / (targets.pxAt(p) / controls.zoom) / 5;
+  const a = Math.random() * Math.PI * 2, d = Math.random() * 0.12 * span;
+  p.addScaledVector(side, Math.cos(a) * d).addScaledVector(up, Math.sin(a) * d);
+  controls.flyTo(p, 5);
+  armed = it;
+}
+
+// ---------- tapping: find an object ----------
 function screenToNdc(cx, cy) {
   const r = canvas.getBoundingClientRect();
   return new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
 }
-const pxPerUnit = () => canvas.getBoundingClientRect().height / ((camera.top - camera.bottom) / camera.zoom);
-targets.pxPerUnit = pxPerUnit;
-targets.viewPx = () => { const v = controls.visibleRect(); return Math.min(v.w, v.h); };
-controls.onTap = (cx, cy) => {
-  if (targets.releaseReveals()) return;           // a tap anywhere lets revealed objects go
-  targets.tap(screenToNdc(cx, cy), camera, pxPerUnit());
-};
-// REVEAL (SDD hint): shows unfound objects where they are, in a frozen ring, after zooming out to ×1
+// how the current camera sees a point (for the find animation and rings)
+targets.pxAt = (p) => (camera === orthoCam ? ortho.pxAt() : look.pxAt(p));
+targets.towardCam = (p) => (camera === orthoCam ? targets.viewDir : perspCam.position.clone().sub(p).normalize());
+targets.camDist = (p) => (camera === orthoCam ? 60 : perspCam.position.distanceTo(p));
+targets.viewPx = () => Math.min(window.innerWidth, window.innerHeight);
+ortho.onTap = look.onTap = (cx, cy) => { targets.tap(screenToNdc(cx, cy), camera); };
+// REVEAL (SDD hint): rings unfound objects where they are, after zooming out to ×1; each ring stays
+// until that object is tapped (OS-21: 1.1)
 $('reveal1').addEventListener('click', () => { controls.reset(); targets.reveal(1); });
 $('revealall').addEventListener('click', () => { controls.reset(); targets.reveal(Infinity); });
 
+// ---------- a new round (Scene Instance): new decor, new Target and Passive Objects ----------
+function newRound(seed = Math.floor(Math.random() * 1e9)) {
+  batcher.clear();
+  fx.decorate(rng(seed ^ 0x5eed));           // fabrics and book colours (v15, M2)
+  sampler.set(sampler.name);                  // dress the swapped fabrics in the current style
+  setCut(VIEWS.diorama.cut);                  // objects are hidden for the Diorama view (seen by every view)
+  targets.newRound(seed);
+  rebatch();
+  setCut(VIEWS[view].cut);
+  armed = null;
+}
 $('newround').addEventListener('click', () => {
   findMsg.hidden = false; findMsg.textContent = 'Hiding…';
-  setTimeout(() => targets.newRound(), 30); // let the note show before the (short) search
+  setTimeout(() => newRound(), 30); // let the note show before the (short) search
 });
 // CHAL LVL: Low / Medium / High concealment
 const chalSel = $('chal');
@@ -374,7 +554,7 @@ chalSel.addEventListener('change', () => {
   try { localStorage.setItem('objectsleuth.chal', chalSel.value); } catch (e) { /* ignore */ }
   chalSel.blur();
   findMsg.hidden = false; findMsg.textContent = 'Hiding…';
-  setTimeout(() => targets.newRound(), 30);
+  setTimeout(() => newRound(), 30);
 });
 
 // ---------- test-tool pills: hover peeks (desktop), click/tap pins open or closed ----------
@@ -402,13 +582,20 @@ overheadBtn.addEventListener('click', () => {
   overheadBtn.setAttribute('aria-pressed', String(lighting.overhead));
 });
 
-targets.newRound(params.get('round') ? Number(params.get('round')) : undefined);
+newRound(params.get('round') ? Number(params.get('round')) : undefined);
+let startView = 'diorama';
+try { startView = localStorage.getItem('objectsleuth.view') || 'diorama'; } catch (e) { /* ignore */ }
+setView(VIEWS[params.get('view')] ? params.get('view') : startView, !params.get('view'));
+if (params.get('zoom') && view === 'diorama') {
+  const [x, y, z] = (params.get('focus') || '0,1.2,0').split(',').map(Number);
+  ortho.focusOn(new THREE.Vector3(x, y, z), Number(params.get('zoom')));
+}
 updatePills();
-window.objectsleuth = { targets, camera, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab, controls }; // (for testing in the browser console)
+window.objectsleuth = { targets, get camera() { return camera; }, THREE, fx: study.fx, renderer, composer, scene, lighting, setLab, get controls() { return controls; }, ortho, look, setView, newRound, batcher, study }; // (for testing in the browser console)
 
-// ---------- main loop ----------
 // ---------- main loop (v13 "zero-idle": draw only when something visible changes) ----------
-//  • moving (pan, zoom, a find animation, test-clock time-lapse): full speed, lighter contact shading
+//  • moving (pan, zoom, walking, a find animation, curtains gliding, test-clock time-lapse): full
+//    speed, lighter contact shading
 //  • still: a light check 4× a second (clock, sun, clouds, lamps); the room is redrawn ONLY if one of
 //    them visibly changed – usually about once a minute. Otherwise nothing is drawn at all.
 //  • when the view stops moving: one final, fully refined picture
@@ -420,17 +607,18 @@ const start = last;
 renderer.info.autoReset = false;
 // any tap or change in the on-screen controls (lighting, style, quality, Restart…): full speed for
 // 1.5 s, so changes glide smoothly instead of stepping
-let busyUntil = 0;
+// (busyUntil is declared with lastMove, above)
 for (const ev of ['pointerdown', 'change', 'keydown']) document.addEventListener(ev, () => { busyUntil = performance.now() + 1500; }, true);
 window.addEventListener('resize', () => { busyUntil = performance.now() + 500; });
 function visibleState() {
   const c = lighting.cur, h = lighting.hours();
   return [c.sunI, c.hemiI, c.exposure, c.lampI, c.rays, c.windowI, c.toSun.x, c.toSun.y, c.toSun.z]
-    .map((v) => v.toFixed(3)).join() + c.bg.getHexString() + '|' + Math.floor(h * 60) + (lighting.overhead ? 'O' : '');
+    .map((v) => v.toFixed(3)).join() + c.bg.getHexString() + '|' + Math.floor(h * 60) + (lighting.overhead ? 'O' : '') + view + fx.curtains.k.toFixed(3);
 }
 function draw(dt) {
   if (targets.changed) { targets.changed = false; renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true; }
   if (lighting.shadowDirty) { lighting.shadowDirty = false; renderer.shadowMap.needsUpdate = true; }
+  if (study.busy) { renderer.shadowMap.needsUpdate = true; gtao.aoDirty = true; }   // curtains gliding
   const c0 = performance.now();
   renderer.info.reset();
   if (miniature || lab.ao) composer.render(dt); else renderer.render(scene, camera);
@@ -440,7 +628,8 @@ function draw(dt) {
 }
 renderer.setAnimationLoop(() => {
   const now = performance.now();
-  const moving = now - lastMove < 300 || now < busyUntil || controls.pointers.size > 0 || targets.pops.length > 0 || !!lighting.timeLapse || !!controls.anim;
+  const moving = now - lastMove < 300 || now < busyUntil || controls.pointers.size > 0 || targets.animating() || !!lighting.timeLapse
+    || !!controls.anim || !!controls.fly || !!look.walk || study.busy;
   const dt = Math.min((now - last) / 1000, 0.25);
   if (moving) {
     last = now;
@@ -449,6 +638,7 @@ renderer.setAnimationLoop(() => {
     controls.update(dt);
     lighting.update(dt, t);
     study.animate(t, lighting.hours());
+    if (study.changed) { study.changed = false; batcher.refresh(fx.movers); }   // curtains moved: re-merge their batches
     targets.update(dt);
     gtao.aoDirty = true;
     draw(dt);
@@ -461,6 +651,7 @@ renderer.setAnimationLoop(() => {
       controls.update(dt);
       lighting.update(dt, t);
       study.animate(t, lighting.hours());
+      if (study.changed) { study.changed = false; batcher.refresh(fx.movers); }   // curtains moved: re-merge their batches
       targets.update(dt);
       const sig = visibleState();
       if (sig !== lastSig || targets.changed || lighting.shadowDirty || gtao.aoDirty) { lastSig = sig; draw(dt); }

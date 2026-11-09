@@ -16,11 +16,13 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { OBJECT_DEFS, drawOutline } from './objects.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
+// decoys (v15): how many other library objects lie around as Passive Objects (cover and confusion)
 export const LEVELS = {
-  low: { label: 'Low', size: [1.15, 1.45], figurative: 2, minVis: 0.35, modes: { flat: 0.55, lean: 0.35, wedge: 0.05, socket: 0.05 } },
-  med: { label: 'Medium', size: [0.9, 1.2], figurative: 3, minVis: 0.3, modes: { flat: 0.35, lean: 0.35, wedge: 0.15, socket: 0.15 } },
-  high: { label: 'High', size: [0.75, 1.0], figurative: 4, minVis: 0.22, modes: { flat: 0.25, lean: 0.35, wedge: 0.2, socket: 0.2 } },
+  low: { label: 'Low', size: [1.15, 1.45], figurative: 2, minVis: 0.35, decoys: 6, modes: { flat: 0.55, lean: 0.35, wedge: 0.05, socket: 0.05 } },
+  med: { label: 'Medium', size: [0.9, 1.2], figurative: 3, minVis: 0.3, decoys: 9, modes: { flat: 0.35, lean: 0.35, wedge: 0.15, socket: 0.15 } },
+  high: { label: 'High', size: [0.75, 1.0], figurative: 4, minVis: 0.22, decoys: 12, modes: { flat: 0.25, lean: 0.35, wedge: 0.2, socket: 0.2 } },
 };
+export const TO_COUNT = 6;
 // cover rule per level: adj = sides touching something (of 8), vis = share visible from the main view
 const COVER = {
   low: (adj, vis) => adj >= 1 || vis <= 0.85,
@@ -49,10 +51,19 @@ const PAINT_RECIPES = {
     scissors: { u: [0.3, 0.5], v: [0.9, 0.95], size: 0.07, turn: [-0.4, 0.4], why: 'forgotten by a gardener' },
   },
 };
+// v15: any classic library object with a "still" reason may be painted lying on the still life's table
+function recipeFor(paintingId, def) {
+  const R = PAINT_RECIPES[paintingId] && PAINT_RECIPES[paintingId][def.id];
+  if (R || paintingId !== 'still' || !def.still) return R;
+  const left = Math.random() < 0.5;
+  return { u: left ? [0.12, 0.3] : [0.62, 0.86], v: def.upright ? [0.8, 0.82] : [0.84, 0.9], size: def.upright ? 0.1 : 0.12, turn: def.upright ? [0, 0] : [-0.4, 0.4], upright: !!def.upright, why: def.still };
+}
 // TO v3: which furniture each object may be EMBOSSED on (it makes sense there)
 const RELIEF_HOSTS = {
   key: ['chest', 'desk'], watch: ['clock', 'desk'], magnifier: ['desk', 'bookcase'],
   spectacles: ['desk', 'bookcase'], knight: ['chest', 'bookcase'], scissors: ['desk', 'chest'],
+  compass: ['chest', 'desk'], coin: ['chest', 'desk'], shell: ['chest', 'bookcase'], die: ['chest', 'desk'],
+  card: ['desk', 'chest'], feather: ['desk', 'bookcase'], pen: ['desk', 'bookcase'], padlock: ['chest'],
 };
 
 // soft round shadow picture (contact shadows) and a glowing ring picture (found effect)
@@ -82,30 +93,51 @@ export class Targets {
       group.visible = false;
       group.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(group);
-      const it = { def, name: def.name, icon: def.icon, group, box, found: false, form: null };
-      group.traverse((o) => { if (o.isMesh) o.userData.target = it; });
+      const it = { def, name: def.name, icon: def.icon, group, box, found: false, form: null, role: null };
       root.add(group);
       // contact shadow under it
       it.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
         map: SHADOW_TEX, color: 0x000000, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
       }));
       it.shadow.userData.decor = true;
-      it.shadow.visible = false;
-      root.add(it.shadow);
+      it.shadow.visible = false;          // v15: only a record of where its shadow goes – all shadows are drawn as ONE piece (mergeShadows)
       return it;
     });
+    // v15: every soft contact shadow in the room, drawn together as one piece (1 drawing job instead of ~15)
+    this.shadowMesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({
+      map: SHADOW_TEX, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }));
+    this.shadowMesh.userData.decor = true;
+    this.shadowMesh.raycast = () => {};
+    this.shadowMesh.frustumCulled = false;
+    root.add(this.shadowMesh);
+    this.list = [];           // v15: this round's Target Objects (the find list)
     this.reliefs = [];
     this.pops = [];
     this.ray = new THREE.Raycaster();
     this.onChange = null;
+    // v15: set by the game for the current camera (diorama / stage / walk-in)
+    this.towardCam = () => this.viewDir;        // unit direction from a point towards the camera
+    this.camDist = () => 60;                    // distance from a point to the camera
+    this.pxAt = () => 400;                      // screen pixels per metre at a point
   }
+
+  // v15 roles: 'to' = Target Object (findable) · 'po' = Passive Object (decoy) · null = not in the room
+  setRole(it, role) {
+    it.role = role;
+    it.group.traverse((o) => { if (o.isMesh) o.userData.target = role === 'to' ? it : null; });
+  }
+  resolved(it) { return it.found || it.revealed; }
+  // something is still animating (find animation, or a reveal ring appearing): the game draws every frame
+  animating() { return this.pops.some((p) => p.mode === 'find' || (p.mode === 'reveal' && p.t < 0.35)); }
 
   // ---------------------------------------------------------------- helpers
   solids() {
     const list = [];
     this.root.traverse((o) => {
       // (pieces hidden by batching still count: they are the exact shapes; the merged copies don't)
-      if (!o.isMesh || (!o.visible && !o.userData.batched) || o.userData.merged || o.userData.target || o.userData.decor) return;
+      if (!o.isMesh || (!o.visible && !o.userData.batched) || o.userData.merged || o.userData.target || o.userData.decor || o.userData.cutHidden) return;
+      for (let p = o.parent; p && p !== this.root; p = p.parent) if (!p.visible) return;   // (library objects not in the room)
       const m = o.material;
       if (m.transparent || m.colorWrite === false || m.isMeshBasicMaterial) return;
       list.push(o);
@@ -380,10 +412,10 @@ export class Targets {
     // TO v3 "context recipes" (OS-19: 5.1): WHY would this picture show this object? Each recipe puts
     // it where it makes sense (the magnifying glass held up to the flowers, scissors by the vase for
     // cutting them, the watch hanging from a branch…), with some randomness inside the recipe.
-    const choices = list.filter((p) => PAINT_RECIPES[p.id] && PAINT_RECIPES[p.id][it.def.id]);
+    const choices = list.filter((p) => recipeFor(p.id, it.def));
     if (!choices.length) return null;
     const pt = choices[Math.floor(rnd() * choices.length)];
-    const R = PAINT_RECIPES[pt.id][it.def.id], pick = ([a, b]) => a + rnd() * (b - a);
+    const R = recipeFor(pt.id, it.def), pick = ([a, b]) => a + rnd() * (b - a);
     const u = pick(R.u), v = pick(R.v);
     const W = pt.canvas.width, H = pt.canvas.height;
     const size = W * R.size * (this.level === 'high' ? 0.85 : this.level === 'med' ? 1 : 1.25);
@@ -476,18 +508,43 @@ export class Targets {
     if (this.fx.globeBall) this.fx.globeBall.rotation.y = rnd() * Math.PI * 2;   // the globe is turned differently each round
     if (this.fx.rug) this.fx.rug.render(null);
     (this.fx.paintings || []).forEach((p) => p.render(null));
-    for (const it of this.items) { it.group.visible = false; it.shadow.visible = false; it.found = false; it.revealed = false; it.form = null; }
+    for (const it of this.items) { it.group.visible = false; it.shadow.visible = false; it.found = false; it.revealed = false; it.ringed = false; it.form = null; this.setRole(it, null); }
     this.root.updateMatrixWorld(true);
     const L = LEVELS[this.level];
-    const solids = this.solids();
+    // v15 ROLES: 6 Target Objects from the whole library; some others lie around as Passive Objects
+    const pool = this.items.slice().sort(() => rnd() - 0.5);
+    this.list = pool.slice(0, TO_COUNT);
+    const decoys = pool.slice(TO_COUNT, TO_COUNT + L.decoys);
+    this.list.forEach((it) => this.setRole(it, 'to'));
+    decoys.forEach((it) => this.setRole(it, 'po'));
     // while placing, surfaces count from both sides (so "inside furniture" is detected); restored after
     const sides = new Map();
-    for (const o of solids) if (!sides.has(o.material)) sides.set(o.material, o.material.side);
-    for (const mtl of sides.keys()) mtl.side = THREE.DoubleSide;
-    // which objects are figurative this round, and in which form
-    const order = this.items.map((it) => it).sort(() => rnd() - 0.5);
-    const figurative = new Set(order.slice(0, L.figurative));
+    const doubleSided = (list) => {
+      for (const o of list) if (!sides.has(o.material)) { sides.set(o.material, o.material.side); o.material.side = THREE.DoubleSide; }
+    };
+    let solids = this.solids();
+    doubleSided(solids);
     const taken = [], usedPaintings = new Set();
+    // Passive Objects first: lying (or leaning) about in plain, natural places – the Target Objects
+    // may then use them as cover (OS-9: "close to / against other POs")
+    const PO_LEVEL = { ...LEVELS.low, size: [0.95, 1.25], minVis: 0.15 };
+    this.relaxed = true;
+    for (const it of decoys) {
+      const f = this.placeLiteral(it, rnd, solids, taken, PO_LEVEL, true);
+      it.form = f;
+      if (!f) { this.setRole(it, null); continue; }
+      taken.push(f.at);
+      f.m.decompose(it.group.position, it.group.quaternion, it.group.scale);
+      it.group.visible = true;
+      this.placeShadow(it, f);
+    }
+    this.relaxed = false;
+    this.root.updateMatrixWorld(true);
+    solids = this.solids();                     // now including the Passive Objects
+    doubleSided(solids);
+    // which Target Objects are figurative this round, and in which form (never the modern ones)
+    const order = this.list.slice().sort(() => rnd() - 0.5);
+    const figurative = new Set(order.filter((it) => !it.def.modern).slice(0, L.figurative));
     let wovenUsed = false;
     for (const it of order) {
       let form = null;
@@ -514,7 +571,7 @@ export class Targets {
     }
     for (const [mtl, side] of sides) mtl.side = side;
     // show the literal ones
-    for (const it of this.items) {
+    for (const it of this.list) {
       const f = it.form;
       if (!f) { console.warn('ObjectSleuth: no place for', it.name); continue; }
       if (!f.m) continue;
@@ -522,15 +579,16 @@ export class Targets {
       it.group.visible = true;
       this.placeShadow(it, f);
     }
+    this.mergeShadows();
     this.root.updateMatrixWorld(true);
     this.changed = true;                       // v12: shadows and contact shading need drawing again
     if (this.onChange) this.onChange(this);
   }
 
-  placeLiteral(it, rnd, solids, taken, L) {
+  placeLiteral(it, rnd, solids, taken, L, passive = false) {
     const s = L.size[0] + rnd() * (L.size[1] - L.size[0]);
     const w = { ...L.modes };
-    if (!it.def.socket) w.socket = 0; else w.socket = Math.max(w.socket, 0.35); // the key loves its lock
+    if (!it.def.socket || passive) w.socket = 0; else w.socket = Math.max(w.socket, 0.35); // the key loves its lock (POs never take a socket)
     if (!it.def.lean) { w.lean = 0; w.wedge = 0; }
     const tries = [];
     const pool = Object.entries(w).filter(([, v]) => v > 0);
@@ -564,12 +622,37 @@ export class Targets {
     sh.material.opacity = f.kind === 'flat' ? 0.55 : 0.45;
     sh.visible = true;
   }
+  // v15: rebuild the one combined shadow piece from every object's shadow record
+  mergeShadows() {
+    const quads = this.items.filter((it) => it.shadow.visible);
+    const pos = new Float32Array(quads.length * 12), uv = new Float32Array(quads.length * 8), col = new Float32Array(quads.length * 16), idx = [];
+    const v = new THREE.Vector3(), corners = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]];
+    quads.forEach((it, q) => {
+      const sh = it.shadow;
+      sh.updateMatrix();
+      corners.forEach(([x, y], k) => {
+        v.set(x, y, 0).applyMatrix4(sh.matrix);
+        pos.set([v.x, v.y, v.z], q * 12 + k * 3);
+        uv.set([x + 0.5, y + 0.5], q * 8 + k * 2);
+        col.set([0, 0, 0, sh.material.opacity], q * 16 + k * 4);
+      });
+      idx.push(q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3);
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 4));
+    g.setIndex(idx);
+    this.shadowMesh.geometry.dispose();
+    this.shadowMesh.geometry = g;
+    this.shadowMesh.visible = quads.length > 0;
+  }
 
   // ---------------------------------------------------------------- finding
-  tap(ndc, camera, pxPerUnit) {
+  tap(ndc, camera) {
     this.ray.setFromCamera(ndc, camera);
     this.ray.far = 200;
-    const left = this.items.filter((it) => it.form && !it.found);
+    const left = this.list.filter((it) => it.form && !this.resolved(it));
     if (!left.length) return null;
     const meshes = [];
     left.forEach((it) => {
@@ -578,7 +661,8 @@ export class Targets {
     });
     const hit = this.ray.intersectObjects([...meshes, ...this.solids()], false)[0];
     if (hit) {
-      if (hit.object.userData.target && !hit.object.userData.target.found) return this.find(hit.object.userData.target);
+      const tgt = hit.object.userData.target;
+      if (tgt && tgt.role === 'to' && !this.resolved(tgt)) return this.find(tgt);
       // knotted into the rug / painted into a picture: is the tap on its outline?
       for (const it of left) {
         const f = it.form;
@@ -600,14 +684,14 @@ export class Targets {
     for (const it of left) {
       if (!it.form.m) continue;
       const c = it.box.getCenter(new THREE.Vector3()).applyMatrix4(it.form.m);
-      const r = it.box.getSize(new THREE.Vector3()).length() * 0.3 * it.group.scale.x;
-      if (this.ray.ray.distanceToPoint(c) * pxPerUnit < 22 + r * pxPerUnit && this.unblocked(c)) return this.find(it);
+      const r = it.box.getSize(new THREE.Vector3()).length() * 0.3 * it.group.scale.x, px = this.pxAt(c);
+      if (this.ray.ray.distanceToPoint(c) * px < 22 + r * px && this.unblocked(c)) return this.find(it);
     }
     return null;
   }
   unblocked(c) {
-    const toCam = this.viewDir;
-    return !this.cast(c.clone().addScaledVector(toCam, 0.03), toCam, 60, this.solids()).length;
+    const toCam = this.towardCam(c);
+    return !this.cast(c.clone().addScaledVector(toCam, 0.03), toCam, Math.max(0.05, this.camDist(c) - 0.03), this.solids()).length;
   }
 
   // ---------------------------------------------------------------- found & revealed (v14)
@@ -647,9 +731,10 @@ export class Targets {
     tex.colorSpace = THREE.SRGBColorSpace;
     const size = f.kind === 'woven' ? f.radius * 2.2 * this.fx.rug.metresPerKnot : f.radius * 2.4 * f.painting.wM;
     const card = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
-    card.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this.viewDir);
+    const toCam = this.towardCam(f.at);
+    card.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), toCam);
     card.scale.setScalar(size);
-    card.position.copy(f.at).addScaledVector(this.viewDir, 0.01);
+    card.position.copy(f.at).addScaledVector(toCam, 0.01);
     card.renderOrder = 11;
     card.userData.decor = true;
     card.visible = false;
@@ -683,82 +768,76 @@ export class Targets {
     if (f.kind === 'painted') f.painting.render(null);
   }
 
+  // v15 (OS-20: 2.2, OS-21: 1.1): a revealed object keeps its ring – through any zooming and panning –
+  // until the player taps THE OBJECT itself. Then it plays the find animation but counts as
+  // "revealed" (👁️, no credit). Taps elsewhere no longer clear the rings.
   find(it) {
-    it.found = true;
+    if (it.ringed) {
+      it.ringed = false;
+      it.revealed = true;
+      for (const p of this.pops) if (p.mode === 'reveal' && p.it === it) { p.done = true; p.ring.removeFromParent(); p.ring.material.dispose(); }
+      this.pops = this.pops.filter((p) => !p.done);
+    } else {
+      it.found = true;
+    }
     const a = this.actor(it);
     this.ghost(a);
     if (!it.form.m) this.unembed(it);           // the picture lifts off; the host goes back to normal
     if (a.card) a.obj.visible = true;
     it.shadow.visible = false;
+    this.mergeShadows();
     this.pops.push({ it, mode: 'find', t: 0, ring: this.ring(), a });
     if (this.onChange) this.onChange(this);
     return it;
   }
 
-  // REVEAL n unfound objects (n = Infinity: all)
-  reveal(n) {
-    const left = this.items.filter((it) => it.form && !it.found).sort(() => Math.random() - 0.5).slice(0, n);
+  // REVEAL n unfound objects (n = Infinity: all); or one given object (T.O. Reveal)
+  reveal(n, only = null) {
+    const left = (only ? [only] : this.list).filter((it) => it.form && !this.resolved(it) && !it.ringed)
+      .sort(() => Math.random() - 0.5).slice(0, n);
     for (const it of left) {
-      it.found = true;
-      it.revealed = true;
+      it.ringed = true;
       const a = this.actor(it);
       if (a.card) { a.obj.removeFromParent(); a.obj.material.map.dispose(); a.obj.material.dispose(); }
-      const center = a.center;
-      this.pops.push({ it, mode: 'reveal', phase: 'frozen', t: 0, ring: this.ring(), a: { ...a, card: false, meshes: [] }, center });
+      this.pops.push({ it, mode: 'reveal', t: 0, ring: this.ring(), a: { ...a, card: false, meshes: [] }, center: a.center });
     }
     if (left.length && this.onChange) this.onChange(this);
     return left.length;
   }
-  // a tap anywhere while objects are revealed: let them fade (and use up that tap)
-  releaseReveals() {
-    const frozen = this.pops.filter((p) => p.mode === 'reveal' && p.phase === 'frozen');
-    for (const p of frozen) {
-      p.phase = 'fading';
-      p.t = 0;
-      if (p.it.form.m) { // the 3D object fades with its ring
-        const a = this.actor(p.it);
-        this.ghost(a);
-        p.a = a;
-      }
-    }
-    return frozen.length > 0;
+  // where an object is (for T.O. Zoom): its centre in the room
+  focusPoint(it) {
+    const f = it.form;
+    if (!f) return null;
+    if (f.m) return it.box.getCenter(new THREE.Vector3()).applyMatrix4(f.m);
+    return f.at.clone();
   }
 
   update(dt) {
     for (const r of this.reliefs) if (r.material !== r.userData.host.material && !r.userData.ghost) r.material = r.userData.host.material; // follow art style
-    if (this.pops.length) this.changed = true;  // things are moving: shadows and shading follow
-    const px = this.pxPerUnit ? this.pxPerUnit() : 400, view = this.viewPx ? this.viewPx() : 700;
+    if (this.animating()) this.changed = true;  // things are moving: shadows and shading follow (a still ring needs nothing)
+    const view = this.viewPx ? this.viewPx() : 700;
     for (const pop of this.pops) {
-      const it = pop.it, a = pop.a;
+      const a = pop.a;
       if (pop.mode === 'reveal') {
-        // the ring stays around the object, never smaller than ~70 px on screen, so it can be spotted at ×1
-        const rs = Math.max(a.size * 1.6, 70 / px);
+        // the ring stays around the object (frozen) until the object is tapped; never smaller than
+        // ~70 px on screen, so it can be spotted at ×1
+        const rs = Math.max(a.size * 1.6, 70 / this.pxAt(pop.center));
         pop.ring.position.copy(pop.center);
         pop.ring.scale.set(rs, rs, 1);
-        if (pop.phase === 'frozen') { pop.ring.material.opacity = 0.75 + 0.25 * Math.min(1, (pop.t += dt) / 0.3); continue; }
-        pop.t += dt;
-        const fade = Math.max(0, 1 - pop.t / 1.0);  // gone within 1 second
-        pop.ring.material.opacity = fade;
-        if (a.meshes && a.meshes.length && a.saved) a.meshes.forEach((o) => { o.material.opacity = fade; });
-        if (pop.t >= 1.0) {
-          pop.done = true;
-          pop.ring.removeFromParent(); pop.ring.material.dispose();
-          if (a.saved) this.unghost(a);
-          if (it.form.m) { it.group.visible = false; it.shadow.visible = false; }
-          else if (it.form.kind === 'relief') it.form.mesh.visible = false;
-          else this.unembed(it);
-        }
+        pop.ring.material.opacity = 0.75 + 0.25 * Math.min(1, (pop.t += dt) / 0.3);
         continue;
       }
       // FOUND
       pop.t += dt;
       const k = Math.min(1, pop.t / 2.0), e = 1 - (1 - k) ** 3;          // 2 seconds, easing out
-      // grow so the object ends at ~1/3 of the visible screen, whatever the zoom (never less than ×1.3)
-      const targetGrow = Math.min(60, Math.max(1.3, (0.34 * view) / (a.size * px)));
-      const grow = 1 + (targetGrow - 1) * e;
-      const toward = this.viewDir.clone().multiplyScalar(1.2 * e);       // and come towards the player
+      // come towards the player (in the walk-in view: never closer than half-way to the eye)…
+      if (!pop.toCam) { pop.toCam = this.towardCam(a.center).clone(); pop.reach = Math.min(1.2, 0.45 * this.camDist(a.center)); }
+      const end = a.center.clone().addScaledVector(pop.toCam, pop.reach);
+      // …and grow so the object ends at ~1/3 of the visible screen, whatever the zoom (never less than ×1.3)
+      if (!pop.targetGrow) pop.targetGrow = Math.min(60, Math.max(1.3, (0.34 * view) / (a.size * this.pxAt(end))));
+      const grow = 1 + (pop.targetGrow - 1) * e;
       const fade = k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45;
-      const c = a.center.clone().add(toward);
+      const c = a.center.clone().addScaledVector(pop.toCam, pop.reach * e);
       a.obj.scale.setScalar(a.s0 * grow);
       const offset = a.local.clone().multiplyScalar(a.s0 * grow).applyQuaternion(a.obj.quaternion);
       a.obj.position.copy(c).sub(offset);

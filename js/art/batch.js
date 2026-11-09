@@ -19,7 +19,7 @@ export class StaticBatcher {
     if (!o.isMesh || o.isInstancedMesh || !o.visible) return false;
     const m = o.material;
     if (!m || Array.isArray(m) || m.transparent || m.colorWrite === false || m.map) return false;
-    for (let p = o; p; p = p.parent) if (p.userData.dynamic || p.userData.target || p.userData.decor) return false;
+    for (let p = o; p; p = p.parent) if (!p.visible || p.userData.dynamic || p.userData.target || p.userData.decor) return false;   // (v15: + hidden library objects)
     return true;
   }
 
@@ -30,33 +30,20 @@ export class StaticBatcher {
     this.root.traverse((o) => {
       if (!this.isStatic(o)) return;
       const g = o.geometry;
-      const sig = [o.material.uuid, o.castShadow, o.receiveShadow, Object.keys(g.attributes).sort().join(',')].join('|');
+      const sig = [o.material.uuid, o.castShadow, o.receiveShadow, Object.keys(g.attributes).sort().join(','), o.userData.cutTag || ''].join('|');   // v15: one batch per cut-away wall
       if (!groups.has(sig)) groups.set(sig, []);
       groups.get(sig).push(o);
     });
-    const nm = new THREE.Matrix3();
     for (const list of groups.values()) {
       if (list.length < 2) continue;                       // nothing to gain
-      const geos = list.map((o) => {
-        let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
-        g.clearGroups();
-        g.applyMatrix4(o.matrixWorld);                     // into room coordinates
-        nm.getNormalMatrix(o.matrixWorld);
-        for (const name of ['aGrain', 'aGrain2']) {        // knit stitch directions turn with the piece
-          const a = g.attributes[name];
-          if (!a) continue;
-          const v = new THREE.Vector3();
-          for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).applyMatrix3(nm).normalize(); a.setXYZ(i, v.x, v.y, v.z); }
-        }
-        return g;
-      });
-      const merged = mergeGeometries(geos, false);
-      geos.forEach((g) => g.dispose());
+      const merged = this.mergeList(list);
       if (!merged) continue;
       const mesh = new THREE.Mesh(merged, list[0].material);
       mesh.castShadow = list[0].castShadow;
       mesh.receiveShadow = list[0].receiveShadow;
       mesh.userData.merged = true;
+      mesh.userData.sources = list;
+      mesh.userData.cutTag = list[0].userData.cutTag;      // v15: hidden with its wall in the cut-away views
       mesh.raycast = () => {};                             // taps and hiding use the original pieces
       this.root.add(mesh);
       this.merged.push(mesh);
@@ -64,9 +51,47 @@ export class StaticBatcher {
     }
   }
 
+  // v15: pieces that move only now and then (curtains, blind) stay merged; when they move, just the
+  // batches that contain them are merged again. Pieces switched off (userData.off) or inside a hidden
+  // group are left out.
+  refresh(objs) {
+    const set = new Set();
+    objs.forEach((o) => o.traverse((c) => set.add(c)));
+    this.root.updateMatrixWorld(true);
+    const on = (o) => { if (o.userData.off) return false; for (let p = o.parent; p; p = p.parent) if (!p.visible) return false; return true; };
+    for (const m of this.merged) {
+      const list = m.userData.sources;
+      if (!list.some((o) => set.has(o))) continue;
+      const live = list.filter(on);
+      m.geometry.dispose();
+      m.geometry = (live.length && this.mergeList(live)) || new THREE.BufferGeometry();
+    }
+  }
+
+  // one geometry, in room coordinates, from a list of pieces
+  mergeList(list) {
+    const nm = new THREE.Matrix3();
+    const geos = list.map((o) => {
+      const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+      g.clearGroups();
+      g.applyMatrix4(o.matrixWorld);                     // into room coordinates
+      nm.getNormalMatrix(o.matrixWorld);
+      for (const name of ['aGrain', 'aGrain2']) {        // knit stitch directions turn with the piece
+        const a = g.attributes[name];
+        if (!a) continue;
+        const v = new THREE.Vector3();
+        for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).applyMatrix3(nm).normalize(); a.setXYZ(i, v.x, v.y, v.z); }
+      }
+      return g;
+    });
+    const merged = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    return merged;
+  }
+
   clear() {
     for (const m of this.merged) { m.removeFromParent(); m.geometry.dispose(); }
-    for (const o of this.hidden) { o.visible = true; o.userData.batched = false; }
+    for (const o of this.hidden) { o.visible = !o.userData.off; o.userData.batched = false; }   // (v15: pieces switched off stay hidden)
     this.merged = [];
     this.hidden = [];
   }

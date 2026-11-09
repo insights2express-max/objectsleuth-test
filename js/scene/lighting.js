@@ -12,13 +12,14 @@ export const PRESETS = {
 };
 
 // Three "key" looks; every moment of the day blends between them by the sun's height.
+// viewTint (v15): how bright and what colour the painted outdoor views behind the windows look
 const KEYS = {
-  night: { bg: 0x121827, hemiSky: 0x8a96c4, hemiGround: 0x4a3a48, hemiI: 1.35, fireI: 9, windowColor: 0x2a3a66, windowI: 0.6, exposure: 1.15 },
-  twi: { bg: 0x5d4a6e, hemiSky: 0xffb98a, hemiGround: 0x3a2f45, hemiI: 1.2, fireI: 4, windowColor: 0xff9a5a, windowI: 0.9, exposure: 1.05 },
-  day: { bg: 0xa9c6d6, hemiSky: 0xfff4e2, hemiGround: 0x6b5a48, hemiI: 2.3, fireI: 1.5, windowColor: 0xe8f6ff, windowI: 0.9, exposure: 1.05 },
+  night: { bg: 0x121827, hemiSky: 0x8a96c4, hemiGround: 0x4a3a48, hemiI: 1.35, fireI: 9, windowColor: 0x2a3a66, windowI: 0.6, exposure: 1.15, viewTint: 0x1b2340 },
+  twi: { bg: 0x5d4a6e, hemiSky: 0xffb98a, hemiGround: 0x3a2f45, hemiI: 1.2, fireI: 4, windowColor: 0xff9a5a, windowI: 0.9, exposure: 1.05, viewTint: 0xd9906a },
+  day: { bg: 0xa9c6d6, hemiSky: 0xfff4e2, hemiGround: 0x6b5a48, hemiI: 2.3, fireI: 1.5, windowColor: 0xe8f6ff, windowI: 0.9, exposure: 1.05, viewTint: 0xf2f2ee },
 };
 const NUMS = ['hemiI', 'fireI', 'windowI', 'exposure', 'sunI', 'lampI', 'rays'];
-const COLS = ['bg', 'hemiSky', 'hemiGround', 'windowColor', 'sunColor'];
+const COLS = ['bg', 'hemiSky', 'hemiGround', 'windowColor', 'sunColor', 'viewTint'];
 for (const k of Object.values(KEYS)) COLS.forEach((c) => { if (c in k) k[c] = new THREE.Color(k[c]); });
 
 const SUN_LOW = new THREE.Color(0xff8a40), SUN_HIGH = new THREE.Color(0xfff2dc), MOON = new THREE.Color(0x9fb2ff);
@@ -42,7 +43,8 @@ function stateAt(hours, cover, turn, s) {
     const nt = N[k] + (T[k] - N[k]) * a;
     s[k] = nt + (D[k] - nt) * b;
   }
-  for (const k of ['bg', 'hemiSky', 'hemiGround', 'windowColor']) s[k].copy(N[k]).lerp(T[k], a).lerp(D[k], b);
+  for (const k of ['bg', 'hemiSky', 'hemiGround', 'windowColor', 'viewTint']) s[k].copy(N[k]).lerp(T[k], a).lerp(D[k], b);
+  s.viewTint.lerp(OVERCAST, 0.3 * cover * b);
   const clear = 1 - cover;
   if (el > -1.5) { // the sun
     const up = smooth(-1, 8, el);
@@ -140,9 +142,10 @@ export class Lighting {
   // The light only joins the room while it is on, so "off" costs nothing.
   setOverhead(on) {
     this.overhead = on;
+    if (this.fx.overheadMat) this.fx.overheadMat.emissiveIntensity = on ? 1.6 : 0;   // v15: the ceiling dome glows
     if (!this.overheadLight) {
       this.overheadLight = new THREE.PointLight(0xfff1dc, 0, 11, 1.1);
-      this.overheadLight.position.set(0, 3.05, 0);
+      this.overheadLight.position.set(0, 2.95, 0);                                     // just under the dome
       this.overheadFill = new THREE.HemisphereLight(0xfff4e6, 0x6b5a48, 0);
     }
     if (on) { this.scene.add(this.overheadLight, this.overheadFill); } else { this.overheadLight.removeFromParent(); this.overheadFill.removeFromParent(); }
@@ -226,6 +229,7 @@ export class Lighting {
     (fx.candleLights || []).forEach((l, i) => { l.intensity = 0.45 * c.lampI * (0.85 + 0.1 * Math.sin(t * 11 + i * 2) + 0.05 * Math.sin(t * 27 + i)); });
     fx.bulbMats.forEach((m) => m.color.copy(BULB_OFF).lerp(BULB_ON, Math.min(1, c.lampI)));
     fx.shadeMats.forEach((m) => { m.emissiveIntensity = 0.55 * c.lampI; });
-    fx.windowMats.forEach((m) => { m.emissive.copy(c.windowColor); m.emissiveIntensity = c.windowI; });
+    fx.windowMats.forEach((m) => { m.emissive.copy(c.windowColor); m.emissiveIntensity = c.windowI * 0.3; });   // v15: lighter glass
+    (fx.backdropMats || []).forEach((m) => m.color.copy(c.viewTint));
   }
 }

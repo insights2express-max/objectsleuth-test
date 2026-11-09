@@ -21,11 +21,17 @@ export function buildStudy() {
   const r = rng(20261105); // fixed seed: the room looks the same every time
   const root = new THREE.Group();
   const fx = { lamps: [], bulbMats: [], shadeMats: [], flames: [], windowMats: [], openings: [], fireLight: null, paintings: [], sockets: [], candleLights: [],
+    movers: [], backdropMats: [], overheadMat: null, curtains: null, blind: null,
+    fabric: { main: [], dark: [], cushion: [], curtain: [], curtainDark: [] },
     room: new THREE.Box3(new THREE.Vector3(-4.0, 0, -3.0), new THREE.Vector3(4.0, 3.2, 3.0)) };
   const books = [];
 
   root.add(buildFloor(r));
   root.add(buildWalls(fx));
+  // v15 (M1.8): the room's other two walls and its ceiling. Each is tagged (userData.cut) so a view
+  // can cut it away: Diorama hides front + right + ceiling, Stage hides the front, Walk-in shows all.
+  root.add(buildFrontWall(fx), buildRightWall(fx), buildCeiling(fx));
+  root.add(buildBackdrops(fx));
   root.add(buildFireplace(r, fx));
   // hostKind: what a piece of furniture is, so embossed Target Objects go somewhere that makes sense (TO v3)
   const tag = (o, kind) => { o.userData.hostKind = kind; return o; };
@@ -37,8 +43,8 @@ export function buildStudy() {
   root.add(clock.group);
   root.add(buildRug(fx, r));
   root.add(tag(group([buildDesk(r, fx, books)], 1.5, 0, 0.0), 'desk'));
-  root.add(group([buildDeskChair()], 1.5, 0, 0.85, Math.PI));
-  root.add(group([buildArmchair()], -3.3, 0, 0.8, Math.PI / 2));     // back clear of the window sill
+  root.add(group([buildDeskChair(fx)], 1.5, 0, 0.85, Math.PI));
+  root.add(group([buildArmchair(fx)], -3.3, 0, 0.8, Math.PI / 2));     // back clear of the window sill
   root.add(group([buildSideTable(r, books)], -3.4, 0, 2.15));
   root.add(group([buildFloorLamp(fx)], -3.55, 0, -0.6));
   const globe = buildGlobe(r);
@@ -51,11 +57,36 @@ export function buildStudy() {
   root.add(group([buildFireTools()], 1.3, 0, -2.4));
   root.add(group([buildLogBasket()], -1.43, 0, -2.36, 0.2));     // clear of the hearth
   bookStack(r, books, 2.75, 0, 1.45, 5);
-  root.add(makeBooks(books));
+  root.add(tag(buildSideboard(r, books), 'chest'));
+  fx.books = makeBooks(books);
+  root.add(fx.books);
   seatIntoRoom(root);
   fx.globeBall = globe.ball;
   // things that move: never merged into the big batched pieces (art/batch.js)
   for (const o of [clock.pend, clock.minute, clock.hour, globe.ball, ...fx.fireFlames, ...fx.flames, ...fx.embers]) o.userData.dynamic = true;
+  // (curtains and blind are NOT "dynamic": they stay merged and are re-merged only while they glide – v15)
+  // every piece learns which wall it belongs to (for the cut-away views)
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    for (let p = o; p; p = p.parent) if (p.userData.cut) { o.userData.cutTag = p.userData.cut; break; }
+  });
+  fx.cutMeshes = [];
+  root.traverse((o) => { if (o.isMesh && o.userData.cutTag) fx.cutMeshes.push(o); });
+
+  // ---- v15 DECOR VARIATION per Scene Instance (M2): fabrics and book colours change every round
+  const FABRICS = [[0x3f6b4f, 0x2e5039], [0x8c2f2f, 0x6c2222], [0x2f4a6b, 0x22364f], [0x9a7a3a, 0x7a5e2a], [0x6b4a32, 0x4f3524], [0x5a3a5e, 0x432a46]];
+  const setMat = (o, m) => { if (o.userData.orig) o.userData.orig.m = m; else o.material = m; };
+  fx.decorate = (rnd) => {
+    const n = FABRICS.length, a = Math.floor(rnd() * n), c = (a + 1 + Math.floor(rnd() * (n - 1))) % n, k = Math.floor(rnd() * n);
+    fx.fabric.main.forEach((o) => setMat(o, mat(FABRICS[a][0], { rough: 0.86 })));
+    fx.fabric.dark.forEach((o) => setMat(o, mat(FABRICS[a][1], { rough: 0.86 })));
+    fx.fabric.cushion.forEach((o) => setMat(o, mat(FABRICS[k][0], { rough: 0.87 })));
+    fx.fabric.curtain.forEach((o) => setMat(o, mat(FABRICS[c][0], { rough: 0.88 })));
+    fx.fabric.curtainDark.forEach((o) => setMat(o, mat(FABRICS[c][1], { rough: 0.88 })));
+    const col = new THREE.Color();
+    for (let i = 0; i < fx.books.count; i++) fx.books.setColorAt(i, col.setHex(BOOK_COLORS[Math.floor(rnd() * BOOK_COLORS.length)]));
+    fx.books.instanceColor.needsUpdate = true;
+  };
 
   return {
     root,
@@ -65,6 +96,8 @@ export function buildStudy() {
     // faces south-west (sun through the left window in the morning, the back window in
     // the afternoon, both around noon). See sun.js → compassDir().
     compassTurn: 135,
+    snap: true,      // the next animate() jumps straight to the right curtain position (start-up)
+    busy: false,     // curtains are gliding: the game draws every frame
     animate(t, hours) {
       const dt = Math.min(0.1, Math.max(0, t - (this.lastT ?? t)));
       this.lastT = t;
@@ -81,6 +114,18 @@ export function buildStudy() {
       clock.minute.rotation.z = -(m / 60) * Math.PI * 2;
       clock.hour.rotation.z = -((hours % 12) / 12) * Math.PI * 2;
       // (v13: the globe stands still; it gets a new random turn each round – see targets.newRound)
+      // v15: curtains and blind close after sunset (19:30) and open at 6:00. They glide for 1.5 s only
+      // when that moment comes (or the lighting preset changes); otherwise nothing moves (zero-idle).
+      const shut = hours >= 19.5 || hours < 6 ? 1 : 0, k = fx.curtains.k;
+      this.busy = Math.abs(shut - k) > 1e-3;
+      if (this.busy) {
+        const nk = this.snap ? shut : k + Math.sign(shut - k) * Math.min(Math.abs(shut - k), dt / 1.5);
+        fx.setCurtains(nk);
+        fx.blind.scale.y = 0.02 + 0.98 * nk * nk * (3 - 2 * nk);
+        fx.blind.visible = nk > 0.005;            // fully rolled up: gone (no sliver under the roll)
+        this.changed = true;                      // (main.js re-merges the curtain batches)
+      }
+      this.snap = false;
     },
   };
 }
@@ -106,10 +151,13 @@ function seatIntoRoom(root) {
     let { width: w, height: h, depth: d } = o.geometry.parameters;
     const min0 = Math.min(w, h, d);
     let dx = 0, dy = 0, dz = 0;
-    if (b.max.x > 3.995 || b.max.z > 2.995 || b.max.y > 3.19) return;   // leave the cut-away edges and wall tops alone
+    if (b.max.y > 3.19) return;                                                      // walls and wall tops
+    if (h < 0.05 && (b.max.x > 3.995 || b.max.z > 2.995)) return;                    // floor boards at the Diorama's cut edges
     if (Math.abs(b.min.y) < eps && b.max.y > 0.01 && b.max.y < 2.5) { h += SINK; dy = -SINK / 2; }  // on the floor (not walls)
     if (!turned && Math.abs(b.min.z + 3.0) < eps && b.max.z > -2.9) { d += SINK; dz = -SINK / 2; }     // against the back wall (≥10 cm deep: not panelling)
     if (!turned && Math.abs(b.min.x + 4.0) < eps && b.max.x > -3.9) { w += SINK; dx = -SINK / 2; }     // against the left wall (≥10 cm deep)
+    if (!turned && b.min.y > -0.001 && Math.abs(b.max.z - 3.0) < eps && b.min.z < 2.9) { d += SINK; dz = SINK / 2; }      // v15: against the front wall
+    if (!turned && b.min.y > -0.001 && Math.abs(b.max.x - 4.0) < eps && b.min.x < 3.9) { w += SINK; dx = SINK / 2; }       // v15: against the right wall
     if (!dx && !dy && !dz) return;
     o.geometry = new THREE.BoxGeometry(w, h, d);
     o.position.x += dx; o.position.y += dy; o.position.z += dz;
@@ -175,9 +223,9 @@ function buildWalls(fx) {
   g.add(box(0.05, 1.7, 0.04, fm, -4.1, 0.9, 0.8));
   g.add(box(0.05, 0.04, 1.6, fm, -4.1, 1.72, 0.8));
   g.add(box(0.32, 0.07, 1.8, fm, -3.95, 0.875, 0.8));   // sill top 0.945, above the chair rail (0.93)
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0xcfe6f2, emissive: 0xdff3ff, emissiveIntensity: 0.8,
-    transparent: true, opacity: 0.35, roughness: 0.1, flatShading: true,
+  const glassMat = new THREE.MeshStandardMaterial({   // v15: clearer, so the outdoor view shows through
+    color: 0xcfe6f2, emissive: 0xdff3ff, emissiveIntensity: 0.25,
+    transparent: true, opacity: 0.16, roughness: 0.1, flatShading: true,
   });
   const glass = mesh(new THREE.BoxGeometry(0.01, 1.7, 1.6), glassMat, false);
   glass.position.set(-4.12, 1.75, 0.8);
@@ -216,12 +264,47 @@ function buildWalls(fx) {
   // curtains, rod and finials
   // v14 (OS-19: 1.7.1): the curtains end just above the sill (top 0.945), so closed they would fall
   // onto nothing – and can hang right beside the window frame again
-  for (const z of [-0.22, 1.82]) {
-    g.add(box(0.1, 1.9, 0.12, C.red, -3.9, 0.95, z - 0.1));
-    g.add(box(0.1, 1.88, 0.12, C.redDark, -3.92, 0.95, z));     // set back and a little lower: folds, no flush faces
-    g.add(box(0.1, 1.9, 0.12, C.red, -3.9, 0.95, z + 0.1));
-    g.add(box(0.12, 0.05, 0.36, C.brass, -3.89, 1.45, z));
+  // v15 (M1.8): the curtains CLOSE at night and open by day (a 1.5 s glide when the time comes; nothing
+  // moves otherwise). Each side is 4 pleats; alternate pleats are set back 2 cm (folds, no flush faces).
+  const curtainA = mat(C.red, { rough: 0.88 }), curtainB = mat(C.redDark, { rough: 0.88 });
+  fx.curtains = { k: 0, sides: [] };
+  for (const [zOpen, zShut] of [[-0.22, 0.25], [1.82, 1.35]]) {
+    const pleats = [], ties = [];
+    for (let i = 0; i < 4; i++) {
+      const back = i % 2 === 1;
+      const p = box(0.1, back ? 1.88 : 1.9, 0.12, back ? curtainB : curtainA, back ? -3.92 : -3.9, 0.95, zOpen);
+      (back ? fx.fabric.curtainDark : fx.fabric.curtain).push(p);
+      pleats.push(p); fx.movers.push(p); g.add(p);
+    }
+    const tie = box(0.12, 0.05, 0.4, C.brass, -3.89, 1.45, zOpen);          // 2 cm wider than the open bundle each side (no flush faces)
+    ties.push(tie); fx.movers.push(tie); g.add(tie);
+    fx.curtains.sides.push({ zOpen, zShut, pleats, ties });
   }
+  fx.setCurtains = (k) => {   // 0 = open, 1 = closed
+    fx.curtains.k = k;
+    const e = k * k * (3 - 2 * k);
+    for (const s of fx.curtains.sides) {
+      const c = s.zOpen + (s.zShut - s.zOpen) * e, step = 0.08 + (0.275 - 0.08) * e;
+      s.pleats.forEach((p, i) => { p.position.z = c + (i - 1.5) * step; p.scale.z = 1 + (2.4 - 1) * e; });
+      s.ties.forEach((t) => { t.userData.off = e >= 0.5; if (!t.userData.batched) t.visible = !t.userData.off; });   // (tie-backs off when closed)
+    }
+  };
+  fx.setCurtains(0);
+  // back window: a roller blind that comes down at night (pivot at the top, so it unrolls downwards)
+  const roll = mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.66, 10), mat(C.cream, { rough: 0.8 }));
+  roll.rotation.z = Math.PI / 2;
+  roll.position.set(3.6, 2.65, -2.94);
+  g.add(roll);
+  const pivot = new THREE.Group();
+  pivot.position.set(3.6, 2.62, -2.935);
+  const BL = 2.62 - 0.955;
+  pivot.add(box(0.62, BL, 0.008, mat(0xe9dcc0, { rough: 0.9 }), 0, -BL, 0));
+  pivot.add(box(0.64, 0.025, 0.018, C.woodDark, 0, -BL - 0.012, 0));     // weighted bottom rail
+  pivot.scale.y = 0.02;
+  pivot.visible = false;
+  fx.movers.push(pivot);
+  g.add(pivot);
+  fx.blind = pivot;
   const rod = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.7, 6), mat(C.brass, { rough: 0.4, metal: 0.3 }));
   rod.rotation.x = Math.PI / 2;
   rod.position.set(-3.86, 2.88, 0.8);
@@ -240,6 +323,146 @@ function buildWalls(fx) {
   pic.rotation.y = Math.PI / 2;
   pic.position.set(-3.924, 1.73, -1.6);
   g.add(pic);
+  return g;
+}
+
+// ---------------------------------------------------------------- v15: front wall, right wall, ceiling
+// These walls reach down to the bottom of the floor slab (y −0.3), so in the Diorama view – where they
+// are cut away – the room looks exactly as before. They don't cast shadows themselves: the invisible
+// shadow-only shell (above) already blocks the sun on these sides, in every view.
+const noShadow = (o) => { o.castShadow = false; return o; };
+function buildFrontWall() {
+  const g = new THREE.Group();
+  g.userData.cut = 'front';
+  const H = 3.2, z = 3.0;
+  g.add(noShadow(box(8.2, H + 0.3, 0.2, C.wall, -0.1, -0.3, z + 0.1)));           // x −4.2..4.0
+  // panelling (stops at the sideboard, x 0.4..2.0; starts after the left wall's rail – no overlaps)
+  for (const [x0, x1] of [[-3.928, 0.36], [2.04, 4.0]]) g.add(noShadow(box(x1 - x0, 0.9, 0.03, C.wainscot, (x0 + x1) / 2, 0, z - 0.015)));
+  g.add(noShadow(box(7.922, 0.05, 0.07, C.rail, 0.037, 0.88, z - 0.035)));         // chair rail (x −3.924..3.998: ends never flush with the panelling)
+  g.add(noShadow(box(7.92, 0.04, 0.04, C.rail, 0, 2.7, z - 0.02)));                // picture rail (x −3.96..3.96)
+  // a seascape above the sideboard (decoration only: never holds a Target Object, as the Diorama hides it)
+  g.add(noShadow(box(1.0, 0.7, 0.05, C.brass, 1.2, 1.3, z - 0.025)));
+  const sea = painting(640, 420, drawSeascape, []);
+  const pic = mesh(new THREE.PlaneGeometry(0.88, 0.58), new THREE.MeshStandardMaterial({ map: sea.tex, roughness: 0.9 }), false);
+  pic.rotation.y = Math.PI;
+  pic.position.set(1.2, 1.65, z - 0.056);
+  g.add(pic);
+  return g;
+}
+function buildRightWall() {
+  const g = new THREE.Group();
+  g.userData.cut = 'right';
+  const H = 3.2, x = 4.0;
+  g.add(noShadow(box(0.2, H + 0.3, 6.4, C.wall, x + 0.1, -0.3, 0)));               // z −3.2..3.2
+  // a closed panelled door (z −0.05..0.85) in a cream architrave
+  const door = box(0.04, 2.2, 0.9, C.wood, x - 0.02, 0, 0.4);
+  g.add(noShadow(door));
+  for (const [y, h] of [[0.15, 0.8], [1.1, 0.85]]) for (const zc of [0.18, 0.62]) g.add(noShadow(box(0.012, h, 0.32, C.woodLight, x - 0.045, y, zc)));
+  const knob = mesh(new THREE.SphereGeometry(0.032, 10, 8), mat(C.brass, { rough: 0.35, metal: 0.5 }), false);
+  knob.position.set(x - 0.075, 1.0, 0.76);
+  g.add(knob);
+  g.add(noShadow(cyl(0.012, 0.012, 0.035, 8, mat(C.brass, { rough: 0.35, metal: 0.5 }), x - 0.05, 0.985, 0.76)));   // (stem, behind the knob)
+  g.children.at(-1).rotation.z = Math.PI / 2;
+  for (const zc of [-0.09, 0.89]) g.add(noShadow(box(0.05, 2.2, 0.08, C.cream, x - 0.025, 0, zc)));
+  g.add(noShadow(box(0.05, 0.08, 1.06, C.cream, x - 0.025, 2.2, 0.4)));
+  // panelling and rails, either side of the door (starts after the back wall's rail – no overlaps)
+  for (const [z0, z1] of [[-2.79, -0.16], [0.96, 2.93]]) {   // (starts past the back window sill)
+    g.add(noShadow(box(0.03, 0.9, z1 - z0, C.wainscot, x - 0.015, 0, (z0 + z1) / 2)));
+    g.add(noShadow(box(0.07, 0.05, z1 - z0 - 0.004, C.rail, x - 0.035, 0.88, (z0 + z1) / 2)));   // 2 mm short at each end: no flush ends
+  }
+  g.add(noShadow(box(0.04, 0.04, 5.92, C.rail, x - 0.02, 2.7, 0)));                 // picture rail (z −2.96..2.96)
+  return g;
+}
+function buildCeiling(fx) {
+  const g = new THREE.Group();
+  g.userData.cut = 'ceiling';
+  g.add(noShadow(box(8.4, 0.12, 6.4, 0xefe6d4, 0, 3.2, 0)));
+  g.add(noShadow(cyl(0.36, 0.36, 0.025, 20, C.cap, 0, 3.175, 0)));                  // ceiling rose
+  // the overhead light: a large enclosed dome (glows when 💡 Overhead is on)
+  g.add(noShadow(cyl(0.2, 0.2, 0.03, 16, mat(C.brass, { rough: 0.35, metal: 0.5 }), 0, 3.145, 0)));
+  fx.overheadMat = new THREE.MeshStandardMaterial({ color: 0xf6f0e2, roughness: 0.4, emissive: 0xfff1d0, emissiveIntensity: 0, flatShading: true });
+  const dome = mesh(new THREE.SphereGeometry(0.18, 16, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), fx.overheadMat, false);
+  dome.scale.y = 0.6;
+  dome.position.set(0, 3.146, 0);
+  g.add(dome);
+  return g;
+}
+
+// Painted outdoor views behind the windows (flat, cheap: OS-20 roadmap O&R). Tinted by the time of day
+// (lighting.js); they never cast shadows and can't be tapped.
+function buildBackdrops(fx) {
+  const g = new THREE.Group();
+  const add = (w, h, draw, x, y, z, ry, seed) => {
+    const tex = canvasTex(1024, 768, (c, W, H) => { draw(c, W, H, seed); brushTexture(c, W, H, seed); });
+    const m = new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff });
+    fx.backdropMats.push(m);
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(w, h), m);
+    p.rotation.y = ry;
+    p.position.set(x, y, z);
+    p.raycast = () => {};
+    p.userData.decor = true;
+    g.add(p);
+  };
+  add(2.8, 2.6, drawGarden, -4.24, 1.75, 0.8, Math.PI / 2, 0x51a7);      // left window: the garden
+  add(1.0, 2.6, drawGarden, 3.5, 1.75, -3.24, 0, 0x2c19);                // back window
+  return g;
+}
+function drawGarden(c, w, h, seed) {
+  const r = rng(seed);
+  const sky = c.createLinearGradient(0, 0, 0, h * 0.6);
+  sky.addColorStop(0, '#8fb9d8'); sky.addColorStop(1, '#d9e8ef');
+  c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  for (let i = 0; i < 5; i++) { // soft clouds
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    const cx = r() * w, cy = h * (0.08 + r() * 0.2);
+    for (let k = 0; k < 4; k++) { c.beginPath(); c.ellipse(cx + k * 40 - 60, cy + (k % 2) * 8, 60, 22, 0, 0, Math.PI * 2); c.fill(); }
+  }
+  const hill = (col, y0, amp) => { c.fillStyle = col; c.beginPath(); c.moveTo(0, h); for (let x = 0; x <= w; x += 32) c.lineTo(x, h * y0 - Math.sin(x / w * 5 + seed) * amp - r() * 6); c.lineTo(w, h); c.fill(); };
+  hill('#9db08a', 0.5, 18); hill('#7f9a6a', 0.56, 14);
+  for (let i = 0; i < 26; i++) { // tree line
+    const x = r() * w, y = h * (0.55 + r() * 0.05), s = 30 + r() * 40;
+    c.fillStyle = r() < 0.5 ? '#3f6b3c' : '#4f7d46';
+    c.beginPath(); c.ellipse(x, y - s * 0.6, s * 0.55, s * 0.75, 0, 0, Math.PI * 2); c.fill();
+  }
+  c.fillStyle = '#6d9a52'; c.fillRect(0, h * 0.64, w, h * 0.36);                     // lawn
+  c.fillStyle = '#2f5a2c'; c.fillRect(0, h * 0.62, w, h * 0.05);                    // clipped hedge
+  for (let i = 0; i < 60; i++) { // flower border
+    c.fillStyle = ['#d9544a', '#f0c84a', '#e9e2f2', '#b46ac0'][Math.floor(r() * 4)];
+    c.beginPath(); c.arc(r() * w, h * (0.68 + r() * 0.05), 4 + r() * 4, 0, Math.PI * 2); c.fill();
+  }
+  c.fillStyle = '#b9a98a'; c.beginPath(); c.moveTo(w * 0.42, h); c.lineTo(w * 0.5, h * 0.7); c.lineTo(w * 0.54, h * 0.7); c.lineTo(w * 0.66, h); c.fill(); // gravel path
+}
+function drawSeascape(c, w, h) {
+  const sky = c.createLinearGradient(0, 0, 0, h * 0.55);
+  sky.addColorStop(0, '#6c8fb0'); sky.addColorStop(1, '#e8d9b8');
+  c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  const sea = c.createLinearGradient(0, h * 0.55, 0, h);
+  sea.addColorStop(0, '#3d6f8f'); sea.addColorStop(1, '#22455e');
+  c.fillStyle = sea; c.fillRect(0, h * 0.55, w, h * 0.45);
+  c.fillStyle = '#5b4a3a'; c.beginPath(); c.moveTo(w * 0.62, h * 0.56); c.lineTo(w * 0.78, h * 0.3); c.lineTo(w * 0.9, h * 0.42); c.lineTo(w, h * 0.36); c.lineTo(w, h * 0.6); c.fill(); // headland
+  c.fillStyle = '#f2ead6'; c.beginPath(); c.moveTo(w * 0.3, h * 0.52); c.lineTo(w * 0.33, h * 0.3); c.lineTo(w * 0.36, h * 0.52); c.fill(); // a sail
+  c.fillStyle = '#3a2c22'; c.fillRect(w * 0.27, h * 0.52, w * 0.1, h * 0.03);
+  c.strokeStyle = 'rgba(255,255,255,0.35)'; c.lineWidth = 2;
+  for (let i = 0; i < 40; i++) { const y = h * (0.6 + (i % 10) * 0.04), x = (i * 97) % w; c.beginPath(); c.moveTo(x, y); c.lineTo(x + 30, y); c.stroke(); }
+  brushTexture(c, w, h, 0x3e55);
+}
+
+// Sideboard against the front wall (a long, low cabinet; things stand on it and lean against it)
+function buildSideboard(r, books) {
+  const g = new THREE.Group();
+  const x = 1.2, zb = 3.0;                       // centre x, the wall behind
+  g.add(box(1.52, 0.1, 0.42, C.woodDark, x, 0, zb - 0.21));          // plinth
+  g.add(box(1.6, 0.68, 0.46, C.wood, x, 0.1, zb - 0.23));             // cabinet
+  g.add(box(1.66, 0.04, 0.5, C.woodDark, x, 0.78, zb - 0.25));        // top (0.82)
+  for (const s of [-1, 1]) {
+    g.add(box(0.76, 0.6, 0.015, C.woodLight, x + s * 0.39, 0.14, zb - 0.4625));   // doors (front 2.5325)
+    const k = mesh(new THREE.SphereGeometry(0.018, 8, 6), mat(C.brass, { rough: 0.35, metal: 0.5 }));
+    k.position.set(x + s * 0.06, 0.5, zb - 0.482);
+    g.add(k);
+  }
+  g.add(lathe([[0, 0], [0.09, 0], [0.13, 0.05], [0.15, 0.09], [0.14, 0.095], [0.12, 0.06], [0, 0.03]], C.blueGlaze, x - 0.5, 0.82, zb - 0.27));
+  g.add(box(0.18, 0.22, 0.02, C.brass, x + 0.55, 0.82, zb - 0.12));   // a framed photograph (on its own stand)
+  bookStack(r, books, x + 0.1, 0.82, zb - 0.26, 2);
   return g;
 }
 
@@ -607,10 +830,10 @@ function buildDesk(r, fx, books) {
   return g;
 }
 
-function buildDeskChair() {
+function buildDeskChair(fx) {
   const g = new THREE.Group();
   g.add(box(0.5, 0.06, 0.48, C.wood, 0, 0.44, 0));
-  g.add(box(0.44, 0.05, 0.42, C.red, 0, 0.5, 0.01));
+  fx.fabric.cushion.push(g.add(box(0.44, 0.05, 0.42, mat(C.red, { rough: 0.87 }), 0, 0.5, 0.01)).children.at(-1));
   for (const x of [-0.21, 0.21]) for (const z of [-0.2, 0.2]) g.add(cyl(0.022, 0.018, 0.44, 6, C.woodDark, x, 0, z));
   g.add(box(0.48, 0.06, 0.04, C.wood, 0, 0.95, -0.22));
   for (const x of [-0.21, 0.21]) g.add(box(0.04, 0.5, 0.04, C.wood, x, 0.5, -0.22));
@@ -618,13 +841,15 @@ function buildDeskChair() {
   return g;
 }
 
-function buildArmchair() {
+function buildArmchair(fx) {
   const g = new THREE.Group();
+  const A = mat(C.green, { rough: 0.86 }), B = mat(C.greenDark, { rough: 0.86 });   // own fabric (v15: changes per round)
+  const add = (o, list) => { g.add(o); list.push(o); };
   for (const x of [-0.4, 0.4]) for (const z of [-0.36, 0.36]) g.add(cyl(0.035, 0.03, 0.1, 6, C.woodDark, x, 0, z));
-  g.add(box(0.95, 0.28, 0.88, C.green, 0, 0.1, 0));
-  g.add(box(0.6, 0.12, 0.68, C.greenDark, 0, 0.38, 0.06));          // 2 cm gaps at the arms (things can slip in)
-  g.add(box(0.95, 0.68, 0.22, C.green, 0, 0.38, -0.34));
-  for (const x of [-0.4, 0.4]) g.add(box(0.16, 0.3, 0.84, C.green, x, 0.38, 0.02));
+  add(box(0.95, 0.28, 0.88, A, 0, 0.1, 0), fx.fabric.main);
+  add(box(0.6, 0.12, 0.68, B, 0, 0.38, 0.06), fx.fabric.dark);          // 2 cm gaps at the arms (things can slip in)
+  add(box(0.95, 0.68, 0.22, A, 0, 0.38, -0.34), fx.fabric.main);
+  for (const x of [-0.4, 0.4]) add(box(0.16, 0.3, 0.84, A, x, 0.38, 0.02), fx.fabric.main);
   const pillow = box(0.36, 0.3, 0.1, C.cream, 0.12, 0.48, -0.17);
   pillow.rotation.set(-0.2, 0.15, 0.12);
   g.add(pillow);

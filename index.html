@@ -30,6 +30,11 @@
       <button type="button" data-preset="night">🕯️ Night</button>
       <button type="button" id="overhead" aria-pressed="false" title="Ceiling light on / off">💡 Overhead</button>
     </div>
+    <div class="seg" id="viewseg" role="group" aria-label="View">
+      <button type="button" data-view="diorama" title="Look into the room from above, like a doll's house">🏠 Diorama</button>
+      <button type="button" data-view="stage" title="Sit in front of the open room, like a theatre stage">🎭 Stage</button>
+      <button type="button" data-view="walk" title="Stand inside the room: look all around; double-tap the floor to walk">🚶 Walk-in</button>
+    </div>
   </header>
 
   <!-- TEST TOOLS: each folds into a small pill (hover to peek, click/tap to pin open or closed) -->
@@ -76,7 +81,8 @@
         <button type="button" id="newround" class="restart" title="Hide the objects somewhere new">Restart Scene</button>
       </div>
     </div>
-    <div class="fp-grip" id="fp-grip" title="Drag to resize"></div>
+    <div class="fp-grip left" id="fp-grip-l" title="Drag to resize"></div>
+    <div class="fp-grip right" id="fp-grip-r" title="Drag to resize"></div>
   </aside>
 
   <div id="hintbar" role="group" aria-label="Hints">
@@ -90,6 +96,8 @@
     <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
     <button type="button" id="zoom-reset" aria-label="Show whole room">⤢</button>
   </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <div id="info"><span id="build"></span> · <span id="fps">– fps</span> · <span id="offline">…</span></div>
 

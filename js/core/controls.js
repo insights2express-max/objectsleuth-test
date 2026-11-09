@@ -26,14 +26,20 @@ export class ViewControls {
     this.lastTap = null;
     this.onTap = null;     // set by the game (from M2: "did the player tap a hidden object?")
     this.onChange = null;
-    // v14: screen space covered by an on-screen panel (px); the room is framed in the rest
+    // v14: screen space covered by an on-screen panel (px); the room is framed in the rest.
+    // v15 (OS-20: 1.3.1.3): no longer used – the Find panel floats OVER the Scene, so the room never
+    // shifts at ×1. Instead, `cover` lets the view pan further on the panel's side once zoomed in,
+    // so every part of the room can be brought out from under the panel.
     this.pad = { left: 0, right: 0, top: 0, bottom: 0 };
+    this.cover = { left: 0, right: 0, top: 0, bottom: 0 };
+    this.active = true;    // v15: only the active view's controls respond
+    this.fly = null;       // v15: an animated move to a point (T.O. Zoom)
 
-    el.addEventListener('pointerdown', (e) => this.down(e));
-    el.addEventListener('pointermove', (e) => this.move(e));
-    el.addEventListener('pointerup', (e) => this.up_(e));
-    el.addEventListener('pointercancel', (e) => this.up_(e, true));
-    el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
+    el.addEventListener('pointerdown', (e) => this.active && this.down(e));
+    el.addEventListener('pointermove', (e) => this.active && this.move(e));
+    el.addEventListener('pointerup', (e) => this.active && this.up_(e));
+    el.addEventListener('pointercancel', (e) => this.active && this.up_(e, true));
+    el.addEventListener('wheel', (e) => this.active && this.wheel(e), { passive: false });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     // Stop iPad Safari from zooming the whole page instead of the scene.
     ['gesturestart', 'gesturechange'].forEach((n) => document.addEventListener(n, (e) => e.preventDefault()));
@@ -94,8 +100,10 @@ export class ViewControls {
     this.zoom = clamp(this.zoom, this.minZoom, this.maxZoom);
     const mu = Math.max(0, this.contentW / 2 - this.W / (2 * this.zoom));
     const mv = Math.max(0, this.contentH / 2 - this.H / (2 * this.zoom));
-    this.u = clamp(this.u, -mu, mu);
-    this.v = clamp(this.v, -mv, mv);
+    // extra room to pan on the side a panel covers (px → world units), growing in from ×1 to ×1.5
+    const { w } = this.visibleRect(), k = (this.W / w) / this.zoom * clamp((this.zoom - 1) / 0.5, 0, 1), c = this.cover;
+    this.u = clamp(this.u, -mu - c.left * k, mu + c.right * k);
+    this.v = clamp(this.v, -mv - c.bottom * k, mv + c.top * k);
     this.cam.position.copy(this.home).addScaledVector(this.right, this.u).addScaledVector(this.up, this.v);
     this.cam.zoom = this.zoom;
     this.cam.updateProjectionMatrix();
@@ -147,9 +155,26 @@ export class ViewControls {
     this.apply();
   }
   zoomBy(f) { this.zoomTo((this.anim ? this.anim.to : this.zoom) * f); }
-  reset() { this.vel.x = this.vel.y = 0; this.zoomTo(1); }
+  reset() { this.vel.x = this.vel.y = 0; this.fly = null; this.zoomTo(1); }
+  // v15 T.O. ZOOM: glide (0.7 s) to centre a 3D point on screen at a given zoom
+  flyTo(point, zoom) {
+    const d = point.clone().sub(this.home);
+    this.vel.x = this.vel.y = 0; this.anim = null;
+    this.fly = { t: 0, u0: this.u, v0: this.v, z0: this.zoom, u1: d.dot(this.right), v1: d.dot(this.up), z1: clamp(zoom, this.minZoom, this.maxZoom) };
+  }
+  // pixels per metre on screen (the same everywhere in this flat, isometric view)
+  pxAt() { return this.el.getBoundingClientRect().height / ((this.cam.top - this.cam.bottom) / this.cam.zoom); }
 
   update(dt) {
+    if (this.fly) {
+      const f = this.fly;
+      f.t = Math.min(1, f.t + dt / 0.7);
+      const e = f.t * f.t * (3 - 2 * f.t);
+      this.zoom = Math.exp(Math.log(f.z0) + (Math.log(f.z1) - Math.log(f.z0)) * e);
+      this.u = f.u0 + (f.u1 - f.u0) * e; this.v = f.v0 + (f.v1 - f.v0) * e;
+      this.apply();
+      if (f.t >= 1) this.fly = null;
+    }
     if (this.anim) {
       const a = this.anim;
       const cur = Math.log(this.zoom), tgt = Math.log(a.to);
@@ -170,6 +195,7 @@ export class ViewControls {
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now() });
     this.vel.x = this.vel.y = 0;
     this.anim = null;
+    this.fly = null;
     if (this.pointers.size >= 2) { this.multi = true; this.pinch = this.pinchInfo(); }
   }
 
