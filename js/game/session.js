@@ -3,7 +3,7 @@
 //   Play formats  Countdown (1–5 min presets, Untimed, Custom 1–30 whole minutes) · Personal Best (time)
 //   Presentation  Standard (the list word) · Scrambled (its letters mixed) · Silhouette (the object's
 //                 shape as it appears in the room) · Mixed (5 / 5 / 5, random order, fixed for the round)
-//   Scoring       100 per Target Object × CHAL LVL (Low 1 · Medium 1.5 · High 2), figurative forms +50 %,
+//   Scoring       100 per Target Object × CHAL LVL (Low 1 · Medium 1.5 · High 2), (figurative forms parked in v16.1 – their +50 % too),
 //                 revealed 0, finishing the round +500, Countdown +5 per second left (OS-33: 5.1)
 //   Saving        the round in play (seed, settings, finds, score, time) is kept on the device and resumes
 //                 after a reload; Personal Bests record score, time and the lighting they were set in.
@@ -113,7 +113,7 @@ export class Session {
   }
   elapsed() { const r = this.round; return r ? r.elapsed + (r.ended || r.paused ? 0 : (performance.now() - r.startedAt) / 1000) : 0; }
   left() { const r = this.round; return r && r.limit ? Math.max(0, r.limit - this.elapsed()) : null; }
-  points(it) { return Math.round(100 * this.game.levels[this.round.opts.chal].mult * (it.form && !it.form.m ? 1.5 : 1)); }
+  points(it) { return Math.round(100 * this.game.levels[this.round.opts.chal].mult); }
 
   onFound(it, how) {
     const r = this.round;
@@ -216,6 +216,6 @@ export class Session {
       const light = v.light === 'auto' ? `Auto ${String(Math.floor(v.hours)).padStart(2, '0')}:${String(Math.floor((v.hours % 1) * 60)).padStart(2, '0')}` : v.light;
       return `<tr><td>${this.game.levels[chal] ? this.game.levels[chal].label : chal}</td><td>${FORMATS[fmt] || fmt}${min ? ' ' + (min === 'untimed' ? 'Untimed' : min + ' min') : ''}</td><td>${PRESENT[pres] || pres}</td><td><b>${v.score}</b></td><td>${v.time && isFinite(v.time) ? fmtTime(v.time) : '–'}</td><td>${light}</td><td>${v.date}</td></tr>`;
     });
-    $('pb-table').innerHTML = rows.length ? `<tr><th>CHAL</th><th>Format</th><th>List</th><th>Score</th><th>Time</th><th>Lighting</th><th>Date</th></tr>${rows.join('')}` : '<tr><td>No Personal Bests yet – finish a Scene.</td></tr>';
+    $('pb-table').innerHTML = rows.length ? `<tr><th>Challenge</th><th>Format</th><th>List</th><th>Score</th><th>Time</th><th>Lighting</th><th>Date</th></tr>${rows.join('')}` : '<tr><td>No Personal Bests yet – finish a Scene.</td></tr>';
   }
 }

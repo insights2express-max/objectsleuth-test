@@ -21,7 +21,7 @@ import { rng } from './core/random.js';
 
 // VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
 // with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
-const APP_VERSION = 'v16';
+const APP_VERSION = 'v16.1';
 const BUILD = 'Draft 1';
 // v16 LOOKS (OS-31: 2.1): Clay (default), Low-poly, Felt, Knit – the Original photo look is gone (OS-30: 2.1)
 const LOOKS = ['clay', 'lowpoly', 'felt', 'knit'];
@@ -183,6 +183,7 @@ function setCut(tags) {
   for (const m of batcher.merged) if (m.userData.cutTag) m.visible = !cutNow.has(m.userData.cutTag);
   // v16: things hung on a cut-away wall go with it (found ones stay hidden)
   for (const it of targets.items) if (it.group.userData.cutTag && !(it.role === 'to' && targets.resolved(it))) it.group.visible = !cutNow.has(it.group.userData.cutTag);
+  for (const h of targets.hookMeshes || []) if (h.userData.cutTag) h.visible = !cutNow.has(h.userData.cutTag);   // v16.1: wall hardware goes with its wall
   gtao.aoDirty = true;
 }
 // merge the fixed pieces again (after a style change or a new round), then re-apply the view's cut
@@ -327,7 +328,7 @@ function setSharpness(pr) {
 qualitySel.addEventListener('change', () => { setQuality(qualitySel.value); qualitySel.blur(); });
 try { setQuality(localStorage.getItem('objectsleuth.quality') || 'auto'); } catch (e) { setQuality('auto'); }
 
-// ---------- TEST CLOCK (test-only u.f.n.) ----------
+// ---------- TIME OF DAY (a player feature since v16.1, OS-37: 4.2 – was the TEST CLOCK) ----------
 const tcRange = $('tc-range'), tcTime = $('tc-time'), tcPlay = $('tc-play'), tcLive = $('tc-live');
 const fmt = (h) => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0');
 function setTestTime(h) {
@@ -353,6 +354,11 @@ function showTestClock() {
 $('zoom-in').addEventListener('click', () => controls.zoomBy(2));
 $('zoom-out').addEventListener('click', () => controls.zoomBy(0.5));
 $('zoom-reset').addEventListener('click', () => controls.reset());
+// v16.1 (OS-36: 5.1.1): HOME = zoom ×1 AND the Scene's starting view (⤢ only zooms out, staying where you are)
+$('zoom-home').addEventListener('click', () => {
+  if (ortho.active) ortho.flyTo(ortho.home.clone(), 1);
+  else look.configure(VIEWS[view].pose);
+});
 const zoomLabel = $('zoom-label');
 let lastMove = -1e9; // when the view last moved (rest mode, see the main loop)
 let busyUntil = 0;   // full speed until then (see the main loop)
@@ -441,7 +447,7 @@ function layoutPanel() {
   const key = edge ? 'wEdge' : 'wSide';
   fp[key] = clamp(fp[key], Math.min(MIN_W[edge ? 'edge' : 'side'], vw - 16), vw - 16);
   panel.style.width = fp.collapsed ? 'auto' : `${fp[key]}px`;
-  panel.style.maxHeight = `${Math.max(120, edge ? vh * 0.5 : vh - Math.max(top, fp.y) - 150)}px`;
+  panel.style.maxHeight = `${Math.max(120, edge ? vh * 0.5 : $('bottombar').getBoundingClientRect().top - 10 - Math.max(top, fp.y))}px`;   // v16.1: down to the zoom bar – room for 6 rows on a desktop (OS-36)
   // docked at the bottom: stay clear of the Reveal + zoom buttons (bottom right) when there's room
   if (fp.mode === 'bottom' && !fp.collapsed) {
     const bars = $('bottombar').offsetWidth + 28;
@@ -582,6 +588,7 @@ async function startRound(opts = null, resume = null) {
     startRound.used = true;
     targets.level = opts.chal;
     chalSel.value = opts.chal;
+    updatePills();
     // OS-25 (5.1): avoid the zones the last rounds' Target Objects used
     targets.avoid = new Set(opts.avoid || store.get('zones', []));
     opts.avoid = [...targets.avoid];
@@ -590,6 +597,26 @@ async function startRound(opts = null, resume = null) {
     const picked = targets.pick(opts.seed, opts.chal);
     const need = [...picked.bg, ...picked.tos, ...picked.pos];
     const groups = await library.loadMany(need, (n, all) => { $('busy-sub').textContent = `Loading models ${n} / ${all}`; });
+    // v16.1 (OS-36, iPad): always 15 Target Objects – a model that didn't load is replaced by another one
+    // (a different list word), and a short note says which model it was
+    if (library.failed.length) {
+      const missing = picked.tos.filter((d) => !groups.has(d.id));
+      if (missing.length) {
+        const r = rng(opts.seed ^ 0x70b5), have = new Set(need.map((d) => d.id));
+        const words = new Set(picked.tos.filter((d) => groups.has(d.id)).map((d) => d.word));
+        const spare = library.defs.filter((d) => d.role === 'to' && !have.has(d.id) && !library.failed.includes(d)).sort(() => r() - 0.5);
+        const extra = [];
+        for (const d of spare) { if (extra.length >= missing.length + 2) break; if (!words.has(d.word)) { extra.push(d); words.add(d.word); } }
+        $('busy-sub').textContent = 'Loading replacement models…';
+        for (const [id, g] of await library.loadMany(extra, null, true)) groups.set(id, g);
+        const ok = extra.filter((d) => groups.has(d.id)).slice(0, missing.length);
+        picked.tos = picked.tos.filter((d) => groups.has(d.id)).concat(ok);
+        picked.order = picked.order.filter((d) => groups.has(d.id)).concat(ok);
+      }
+      const names = [...new Set(library.failed.map((d) => d.word))];
+      setTimeout(() => toast(names.length === 1 ? `Couldn't load the ${names[0]} – another object took its place.`
+        : `Couldn't load ${names.length} models (${names.slice(0, 3).join(', ')}) – other objects took their places.`), 900);
+    }
     $('busy-sub').textContent = 'Finding hiding places…';
     await new Promise((r) => setTimeout(r, 20));
     batcher.clear();
@@ -615,9 +642,10 @@ async function startRound(opts = null, resume = null) {
   }
 }
 $('newround').addEventListener('click', () => startRound());
-// CHAL LVL: Low / Medium / High – also changeable inside the Scene (OS-33: 5.4.1): restarts the Scene
+// CHALLENGE LVL: Low / Medium / High – also changeable inside the Scene (OS-33: 5.4.1): restarts the Scene.
+// v16.1 (OS-36): its own pill, top left (no dev acronyms in the player's view)
 const chalSel = $('chal');
-Object.entries(LEVELS).forEach(([k, v]) => chalSel.add(new Option('CHAL LVL: ' + v.label, k)));
+Object.entries(LEVELS).forEach(([k, v]) => chalSel.add(new Option(v.label, k)));
 chalSel.value = session.defaults.chal;
 chalSel.addEventListener('change', () => {
   chalSel.blur();
@@ -659,6 +687,7 @@ document.querySelectorAll('.tool').forEach((tool) => {
 });
 function updatePills() {
   $('pill-style').textContent = (STYLES[sampler.name] || {}).label || sampler.name;
+  $('pill-chal').textContent = (LEVELS[chalSel.value] || LEVELS.med).label;
   $('pill-quality').textContent = quality.label;
   $('pill-clock').textContent = fmt(lighting.hours());
 }
@@ -759,7 +788,7 @@ renderer.setAnimationLoop(() => {
     session.tick();                     // timer + score text (page text only: no 3D redraw)
     if (quality.adaptive && moveTime > 0.5) {
       const mfps = moveFrames / moveTime;
-      slow = mfps < 40 ? slow + 1 : 0;
+      slow = mfps < 45 ? slow + 1 : 0;              // v16.1 (OS-37: 5): reacts a little sooner (was < 40)
       quick = mfps > 57 ? quick + 1 : 0;
       if (slow >= 2 && prNow > 0.75) { setSharpness(prNow - 0.15); slow = 0; }
       if (quick >= 3 && prNow < Math.min(window.devicePixelRatio, quality.pr)) { setSharpness(Math.min(prNow + 0.1, window.devicePixelRatio, quality.pr)); quick = 0; }

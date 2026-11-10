@@ -38,12 +38,19 @@
     </div>
   </header>
 
-  <!-- TEST TOOLS: each folds into a small pill (hover to peek, click/tap to pin open or closed) -->
+  <!-- PLAYER TOOLS: each folds into a small pill (hover to peek, click/tap to pin open or closed).
+       v16.1 (OS-36, OS-37: 4.2): CHALLENGE LVL moved here from the list; LOOK is now STYLE; TIME OF DAY is a player feature -->
   <div id="tools">
-    <div class="tool" id="tool-style">
-      <button type="button" class="pill" aria-expanded="false">🎨 LOOK: <span id="pill-style">–</span></button>
+    <div class="tool" id="tool-chal">
+      <button type="button" class="pill" aria-expanded="false">🎯 CHALLENGE LVL: <span id="pill-chal">–</span></button>
       <div class="body">
-        <select id="style" aria-label="Look"></select>
+        <select id="chal" aria-label="Challenge level" title="How well the objects are hidden (restarts the Scene)"></select>
+      </div>
+    </div>
+    <div class="tool" id="tool-style">
+      <button type="button" class="pill" aria-expanded="false">🎨 STYLE: <span id="pill-style">–</span></button>
+      <div class="body">
+        <select id="style" aria-label="Style"></select>
         <button type="button" id="mini" aria-pressed="false" title="Tilt-shift: looks like a tiny model">🔍 Miniature</button>
       </div>
     </div>
@@ -54,7 +61,7 @@
       </div>
     </div>
     <div class="tool" id="tool-clock">
-      <button type="button" class="pill" aria-expanded="false">🕰️ TEST CLOCK: <span id="pill-clock">--:--</span></button>
+      <button type="button" class="pill" aria-expanded="false">🕰️ TIME OF DAY: <span id="pill-clock">--:--</span></button>
       <div class="body">
         <input type="range" id="tc-range" min="0" max="23.98" step="0.0167" aria-label="Time of day">
         <span id="tc-time">--:--</span>
@@ -78,7 +85,6 @@
       <div class="fp-bar"><i id="fp-bar"></i></div>
       <ul id="findlist"></ul>
       <div class="fp-foot">
-        <select id="chal" aria-label="Challenge level" title="How well the objects are hidden"></select>
         <button type="button" id="newround" class="restart" title="Hide the objects somewhere new">Restart Scene</button>
       </div>
     </div>
@@ -86,14 +92,15 @@
     <div class="fp-grip right" id="fp-grip-r" title="Drag to resize"></div>
   </aside>
 
-  <!-- bottom right, one row (OS-25 obs 2–3): Reveal buttons, then Home, −, zoom, + -->
+  <!-- bottom right, one row (OS-25 obs 2–3): Reveal buttons, then ⤢ (zoom ×1), ⌂ Home (v16.1), −, zoom, + -->
   <div id="bottombar">
     <div id="hintbar" role="group" aria-label="Hints">
       <button type="button" id="reveal1" title="Show one listed object you haven't found yet">👁️ Reveal 1</button>
       <button type="button" id="revealall" title="Show every listed object you haven't found yet">👁️ Reveal List</button>
     </div>
     <div id="zoombar" role="group" aria-label="Zoom">
-      <button type="button" id="zoom-reset" aria-label="Show whole room" title="Whole room">⤢</button>
+      <button type="button" id="zoom-reset" aria-label="Zoom out to ×1" title="Zoom ×1 (stay where you are)">⤢</button>
+      <button type="button" id="zoom-home" aria-label="Back to the starting view" title="Home: zoom ×1 and the Scene's starting view">⌂</button>
       <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
       <span id="zoom-label">×1.0</span>
       <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
@@ -156,7 +163,7 @@
     <div class="card wide">
       <h2>Settings</h2>
       <section class="row">
-        <label>Look <select id="set-look"></select></label>
+        <label>Style <select id="set-look"></select></label>
         <label>Quality <select id="set-quality"></select></label>
         <label><input type="checkbox" id="set-ao"> Contact shading</label>
         <label><input type="checkbox" id="set-soft"> Soft shadows</label>

@@ -100,7 +100,7 @@ vec2 skinDir(vec3 e1, vec3 e2) {
 }
 // One projection plane: returns (tone, height). All reads use explicit gradients, so the
 // scattered marks have no seams and nothing depends on neighbouring pixels.
-vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o) {
+vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o, float fp) {
   vec2 d = skinDir(e1, e2), dp = vec2(d.y, -d.x);
   vec2 p2 = vec2(dot(vLP, e1), dot(vLP, e2));
   vec2 gx2 = vec2(dot(dpx, e1), dot(dpx, e2)), gy2 = vec2(dot(dpy, e1), dot(dpy, e2));
@@ -117,7 +117,10 @@ vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o) {
     float pn = skNoise(q / 0.35 + o * 7.7 + 11.0);
     h = mix(a.g, a.b, smoothstep(0.35, 0.65, pn) * uMix2);
   }
-  if (uProb > 0.0) { // one-off marks, one dice roll per cell, each kept inside its cell
+  // v16.1 (OS-37: 5, Opera speed): the one-off marks are skipped where they would be only a few pixels wide
+  // (under ~4 px – a small window or a lowered sharpness) – they fade out, so nothing pops; up close they are all there
+  float mkFade = 1.0 - smoothstep(0.08, 0.14, fp / uCell);
+  if (uProb > 0.0 && mkFade > 0.0) { // one-off marks, one dice roll per cell, each kept inside its cell
     vec2 cq = q / uCell, id = floor(cq), f = cq - id;
     vec2 cx = qx / uCell, cy = qy / uCell;
     float sd = vSeed * 37.0;
@@ -133,8 +136,8 @@ vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o) {
         float slot = floor(r2 * 16.0);
         vec2 uvm = (vec2(mod(slot, 4.0), floor(slot / 4.0)) + l) * 0.25;
         vec4 m = textureGrad(uMarks, uvm, M * cx / (sc * 4.0), M * cy / (sc * 4.0));
-        tone += (m.r - 0.5) * 2.0;
-        h += (m.g - 0.5) * 1.6;
+        tone += (m.r - 0.5) * 2.0 * mkFade;
+        h += (m.g - 0.5) * 1.6 * mkFade;
       }
     }
   }
@@ -143,11 +146,15 @@ vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o) {
 vec2 skinSample(vec3 n) {
   vec3 w = pow(abs(n), vec3(6.0)); w /= (w.x + w.y + w.z);
   vec3 dpx = dFdx(vLP), dpy = dFdy(vLP);
+  float fp = max(length(dpx), length(dpy));            // how much surface one pixel covers
   vec2 o = vec2(vSeed * 17.3, fract(vSeed * 91.7) * 5.1);
+  // v16.1: a plane is only worked out where it shows (> 4 %; was 1 %) – mostly one plane per pixel
+  if (w.x < 0.04) w.x = 0.0; if (w.y < 0.04) w.y = 0.0; if (w.z < 0.04) w.z = 0.0;
+  w /= (w.x + w.y + w.z);
   vec2 s = vec2(0.0);
-  if (w.x > 0.01) s += w.x * skinPlane(vec3(0, 0, 1), vec3(0, 1, 0), dpx, dpy, o);
-  if (w.y > 0.01) s += w.y * skinPlane(vec3(1, 0, 0), vec3(0, 0, 1), dpx, dpy, o.yx);
-  if (w.z > 0.01) s += w.z * skinPlane(vec3(1, 0, 0), vec3(0, 1, 0), dpx, dpy, o * 1.3);
+  if (w.x > 0.0) s += w.x * skinPlane(vec3(0, 0, 1), vec3(0, 1, 0), dpx, dpy, o, fp);
+  if (w.y > 0.0) s += w.y * skinPlane(vec3(1, 0, 0), vec3(0, 0, 1), dpx, dpy, o.yx, fp);
+  if (w.z > 0.0) s += w.z * skinPlane(vec3(1, 0, 0), vec3(0, 1, 0), dpx, dpy, o * 1.3, fp);
   return s;
 }
 vec3 skinBump(vec3 sp, vec3 sn, float h, float faceDir) {
@@ -175,7 +182,7 @@ function addSkin(material, style, uniforms) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   normal = skinBump(-vViewPosition, normal, sk.y * uBump, faceDirection);`);
   };
-  material.customProgramCacheKey = () => 'objectsleuth-skin3-' + style;
+  material.customProgramCacheKey = () => 'objectsleuth-skin4-' + style;
 }
 
 // Smooth 3D noise (JS) for hand-made unevenness in the shapes.
@@ -386,7 +393,7 @@ export class StyleSampler {
     let g;
     if (orig.type === 'BoxGeometry') {
       const { width: w, height: h, depth: d } = orig.parameters;
-      const r = Math.min(S.cap, (o.userData.roundMin ?? Math.min(w, h, d)) * S.round); // (roundMin: size before it was sunk into floor/wall)
+      const r = o.userData.sharp ? 0 : Math.min(S.cap, (o.userData.roundMin ?? Math.min(w, h, d)) * S.round); // (roundMin: size before it was sunk into floor/wall · sharp: the room's shell, v16.1)
       g = r < 0.002 ? orig.clone() : new RoundedBoxGeometry(w, h, d, Math.max(w, h, d) > 0.5 ? 2 : 1, r);
     } else {
       g = orig.clone();

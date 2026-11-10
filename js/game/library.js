@@ -23,7 +23,7 @@ export const modelUrl = (def) => (window.OBJECTSLEUTH_MODELS && window.OBJECTSLE
 
 export class Library {
   constructor() {
-    this.defs = ASSET_DEFS;
+    this.defs = ASSET_DEFS.filter((d) => !d.pending);   // v16.1: new pieces wait for JM's Intake check (OS-37: 2.1)
     this.groups = new Map();      // id → group
     this.pending = new Map();     // id → promise
     this.used = new Map();        // id → last round it was used in
@@ -41,18 +41,27 @@ export class Library {
       return g;
     });
     this.pending.set(def.id, p);
+    p.catch(() => this.pending.delete(def.id));           // (a failed load may be tried again)
     return p;
   }
 
-  // load many at once (6 at a time); failures are left out (reported in the console)
-  async loadMany(defs, onProgress) {
-    this.round++;
+  // load many at once (6 at a time). v16.1 (OS-36, iPad): a model that fails is tried twice more after a short
+  // pause; one that still fails is left out (listed in this.failed – the game tops up and says so).
+  // sameRound: a top-up for the round just loaded (its models must not be freed by trim)
+  async loadMany(defs, onProgress, sameRound = false) {
+    if (!sameRound) { this.round++; this.failed = []; }
     const out = new Map(), list = defs.slice();
     let done = 0;
     const worker = async () => {
       while (list.length) {
         const d = list.shift();
-        try { out.set(d.id, await this.load(d)); } catch (e) { console.warn('ObjectSleuth: model failed', d.id, e); }
+        for (let k = 0; k < 3; k++) {
+          try { out.set(d.id, await this.load(d)); break; } catch (e) {
+            if (k < 2) { await new Promise((r) => setTimeout(r, 700 * (k + 1))); continue; }
+            console.warn('ObjectSleuth: model failed', d.id, e);
+            this.failed.push(d);
+          }
+        }
         this.used.set(d.id, this.round);
         if (onProgress) onProgress(++done, defs.length);
       }
@@ -93,7 +102,8 @@ export class Library {
         m.side = THREE.FrontSide;
         // glass that "transmits" light makes the engine draw the WHOLE room a second time every frame
         // (one light bulb: +107 draws). Plain see-through glass looks the same at this size and costs nothing.
-        if (m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = Math.min(m.opacity, 0.35); m.depthWrite = false; }
+        if (m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = Math.min(m.opacity, 0.35); }
+        if (m.transparent) m.depthWrite = false;                // v16.1: see-through glass (clock faces, lantern) never hides what is behind it
       }
       meshes.push(o);
     });

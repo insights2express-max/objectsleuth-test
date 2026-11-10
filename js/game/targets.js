@@ -17,15 +17,30 @@
 // Passive Objects (POs) fill the room the same way and are hidden by the same rules (OS-25: 7).
 // LOOK-ALIKES (OS-30: 1.2): at Medium 1, at High 2 POs share a listed word ("Close, but not this one.").
 import * as THREE from '../../vendor/three/three.module.js';
+import { mergeGeometries } from '../../vendor/three/addons/utils/BufferGeometryUtils.js';
 import { drawOutline } from './objects.js';
 import { shapesOf, silhouetteOfObject, silhouetteOfShapes } from './library.js';
+import { accelerate } from './fastray.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
+// v16.1 (OS-36): the figurative forms (woven / painted / embossed) are PARKED – figurative: 0 on every level.
+// The code stays, to be switched back on in a later build.
 export const LEVELS = {
-  low: { label: 'Low', mult: 1, size: [1.0, 1.15], figurative: 3, minVis: 0.35, pos: 10, lookalikes: 0, modes: { flat: 0.55, lean: 0.35, wedge: 0.05, socket: 0.05 } },
-  med: { label: 'Medium', mult: 1.5, size: [0.85, 1.0], figurative: 5, minVis: 0.3, pos: 14, lookalikes: 1, modes: { flat: 0.4, lean: 0.35, wedge: 0.15, socket: 0.1 } },
-  high: { label: 'High', mult: 2, size: [0.72, 0.9], figurative: 7, minVis: 0.22, pos: 18, lookalikes: 2, modes: { flat: 0.3, lean: 0.35, wedge: 0.2, socket: 0.15 } },
+  low: { label: 'Low', mult: 1, size: [1.0, 1.15], figurative: 0, minVis: 0.35, pos: 10, lookalikes: 0, modes: { flat: 0.55, lean: 0.35, wedge: 0.05, socket: 0.05 } },
+  med: { label: 'Medium', mult: 1.5, size: [0.85, 1.0], figurative: 0, minVis: 0.3, pos: 14, lookalikes: 1, modes: { flat: 0.4, lean: 0.35, wedge: 0.15, socket: 0.1 } },
+  high: { label: 'High', mult: 2, size: [0.72, 0.9], figurative: 0, minVis: 0.22, pos: 18, lookalikes: 2, modes: { flat: 0.3, lean: 0.35, wedge: 0.2, socket: 0.15 } },
 };
+// v16.1 LOGIC / USE CASE (OS-37: 3.1a, OS-38): where things may go and how they rest
+const REACH = 1.75, REACH_WALL = 2.0;          // everyday things stay within reach (top of the object on a wall)
+// how many things a top may hold (small tables and seats: one; large tops more) – never two Target Objects
+const HOST_CAP = { table: 1, seat: 1, chest: 2, sideboard: 3, desk: 3 };
+// wall mounting (OS-39: 2.1.1): tools, weapons and lanterns hang on their own iron hardware – two pegs under
+// long things, one under short ones, a bracket for a lantern, a nail for a clipboard or a mask. Frames,
+// mirrors, the dartboard, the shield and the sconce have their hardware hidden behind them (2.1.1.2).
+const CONCEALED = new Set(['ph-ornate_mirror_01', 'ph-dartboard', 'ph-kite_shield', 'ph-industrial_wall_sconce']);
+const BRACKET = { 'ph-Lantern_01': 0.035 };                        // hangs from an arm (stand-off from the wall)
+const NAIL = new Set(['ph-old_gas_mask', 'ph-clipboard']);
+const HOOK_MAT = new THREE.MeshStandardMaterial({ color: 0x2b2724, roughness: 0.55, metalness: 0.3 });
 export const TO_COUNT = 15, LIST_ROWS = 6;
 // cover rule per level: adj = sides touching something (of 8), vis = share visible from the main view
 const COVER = {
@@ -36,7 +51,7 @@ const COVER = {
 const FOOD = new Set(['bananas', 'apple', 'pomegranate', 'lemon', 'croissant', 'cake']);
 // the collector's weapons display over the fireplace (OS-31: 1.2.1)
 const WEAPONS = new Set(['ph-antique_estoc', 'ph-wooden_handle_saber', 'ph-kite_shield', 'ph-ornate_medieval_mace', 'ph-ornate_war_hammer',
-  'ph-ornate_medieval_dagger', 'ph-bolt_action_rifle_7_62', 'ph-stick_grenade', 'ph-machete', 'ph-old_gas_mask']);
+  'ph-bolt_action_rifle_7_62', 'ph-stick_grenade', 'ph-machete', 'ph-old_gas_mask']);
 const RELIEF_OK = new Set(['desk', 'chest', 'bookcase', 'clock', 'sideboard', 'fireplace']);
 export const longest = (d) => d.size || Math.max(...d.dims);
 
@@ -144,6 +159,8 @@ export class Targets {
       for (let p = o.parent; p && p !== this.root; p = p.parent) if (!p.visible) return;
       const m = o.material;
       if (m.transparent || m.colorWrite === false || m.isMeshBasicMaterial) return;
+      accelerate(o);                                   // (fast rays – the rounded Clay boxes have 300 triangles each)
+      if (o.userData.open === undefined) o.userData.open = m.side === THREE.DoubleSide;   // an open, two-sided shape (a lamp shade): never a "lid"
       list.push(o);
     });
     const ball = (o) => {
@@ -176,7 +193,16 @@ export class Targets {
     if (hit.instanceId !== undefined) { const m = new THREE.Matrix4(); hit.object.getMatrixAt(hit.instanceId, m); n.transformDirection(m); }
     return n.transformDirection(hit.object.matrixWorld);
   }
-  inside(p, solids) { const h = this.cast(p, UP, 4, solids)[0]; return !!h && this.normalOf(h).y > 0.2; }
+  // inside something? – the first surface above faces up (its lid, seen from inside), or (v16.1) more surfaces
+  // above face up than down: inside one of two pieces set into each other (a drawer set into the desktop)
+  inside(p, solids) {
+    const hs = this.cast(p, UP, 4, solids).filter((h) => !h.object.userData.open);
+    if (!hs.length) return false;
+    if (this.normalOf(hs[0]).y > 0.2) return true;
+    let s = 0;
+    for (const h of hs) s += this.normalOf(h).y > 0 ? 1 : -1;     // (every crossing, steep ones too)
+    return s > 0;
+  }
   visible(points, solids) {
     let seen = 0;
     const view = solids.view || solids;
@@ -189,8 +215,26 @@ export class Targets {
     for (let i = 0; i < 8; i++) pts.push(new THREE.Vector3(c.x + (i & 1 ? h.x : -h.x), c.y + (i & 2 ? h.y : -h.y), c.z + (i & 4 ? h.z : -h.z)));
     return pts.map((p) => p.applyMatrix4(m));
   }
+  // the model's outermost real points in 14 directions (v16.1: collision tests follow its shape, not its box)
+  hull(it) {
+    const g = it.group;
+    if (g.userData.hull) return g.userData.hull;
+    const P = this.restPts(it), dirs = [];
+    for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
+      const n = Math.abs(x) + Math.abs(y) + Math.abs(z);
+      if (n === 1 || n === 3) dirs.push(new THREE.Vector3(x, y, z).normalize());
+    }
+    g.userData.hull = dirs.map((d) => {
+      let best = -Infinity, bi = 0;
+      for (let i = 0; i < P.length; i += 3) { const s = P[i] * d.x + P[i + 1] * d.y + P[i + 2] * d.z; if (s > best) { best = s; bi = i; } }
+      return new THREE.Vector3(P[bi], P[bi + 1], P[bi + 2]);
+    });
+    return g.userData.hull;
+  }
   clear(it, m, solids) {
-    const pts = this.posePoints(it, m);
+    // (the look's surface relief – Clay, Knit – may reach a few mm past the model's base: those points sit on the surface)
+    const c0 = it.box.getCenter(new THREE.Vector3()), floor = it.box.min.y + 0.006;
+    const pts = [c0.clone().applyMatrix4(m), ...this.hull(it).map((p) => { const q = p.clone().lerp(c0, 0.05); q.y = Math.max(q.y, floor); return q.applyMatrix4(m); })];
     if (this.inside(pts[0], solids)) return false;
     const d = new THREE.Vector3();
     for (let i = 1; i < pts.length; i++) {
@@ -212,22 +256,28 @@ export class Targets {
   near(p, taken, r = 0) { return taken.some((t) => t.p.distanceTo(p) < Math.max(0.3, t.r + r)); }
 
   // ---------------------------------------------------------------- where things may go
-  // Every upward surface belongs to a kind of place: d desk · t small table / sideboard / chest · s shelf
-  // · k top of a bookcase · m mantel · h hearth · f floor (incl. the rug) · x anywhere else (chair seat, sill…)
+  // Every upward surface belongs to a kind of place: d desk · t small table / chest · y sideboard · s shelf
+  // · k top of a bookcase · m mantel · h hearth · f floor (incl. the rug) · x seat · l window sill
+  // · o on top of books · z anywhere else (on another object, a basket rim…: never used – v16.1, OS-38)
   hostOf(o) { for (let p = o; p && p !== this.root; p = p.parent) if (p.userData.hostKind) return p; return null; }
   classify(hit) {
-    const p = hit.point, host = this.hostOf(hit.object);
+    const p = hit.point;
+    if (hit.object.userData.books) return 'o';
+    const host = this.hostOf(hit.object);
     if (!host) {
-      if (hit.object.userData.proxy) return 'x';
+      if (hit.object.userData.proxy) return 'z';
       if (p.y < 0.03) return Math.abs(p.x) < 1.2 && p.z < -1.85 ? 'h' : 'f';
-      return 'x';
+      return 'z';
     }
     const k = host.userData.hostKind;
     if (k === 'desk') return 'd';
     if (k === 'bookcase') { const b = host.userData.hostBox || (host.userData.hostBox = new THREE.Box3().setFromObject(host)); return p.y > b.max.y - 0.05 ? 'k' : 's'; }
-    if (k === 'fireplace') return p.y > 1.15 ? 'm' : p.y < 0.12 && p.z > -2.8 ? 'h' : 'x';
-    if (k === 'table' || k === 'sideboard' || k === 'chest') return 't';
-    return 'x';
+    if (k === 'fireplace') return p.y > 1.15 ? 'm' : p.y < 0.12 && p.z > -2.8 ? 'h' : 'z';
+    if (k === 'table' || k === 'chest') return 't';
+    if (k === 'sideboard') return 'y';
+    if (k === 'seat') return 'x';
+    if (k === 'sill') return 'l';
+    return 'z';
   }
   // regions to look in for each kind of place (so small places are found quickly)
   regions() {
@@ -238,21 +288,47 @@ export class Targets {
       if (!k) return;
       const b = new THREE.Box3().setFromObject(o);
       o.userData.hostBox = b;
-      const code = { desk: 'd', bookcase: 's', fireplace: 'm', table: 't', sideboard: 't', chest: 't', seat: 'x' }[k];
+      const code = { desk: 'd', bookcase: 's', fireplace: 'm', table: 't', sideboard: 'y', chest: 't', seat: 'x', sill: 'l' }[k];
       if (!code) return;
       R.push({ code, box: b });
-      if (k === 'bookcase') R.push({ code: 'k', box: b });
+      if (k === 'bookcase') R.push({ code: 'k', box: b }, { code: 'o', box: b });
+      if (k === 'desk') R.push({ code: 'o', box: b });
       if (k === 'fireplace') R.push({ code: 'h', box: new THREE.Box3(new THREE.Vector3(-1.15, 0, -2.75), new THREE.Vector3(1.15, 0.2, -1.85)) });
     });
+    for (const b of this.fx.bookZones || []) R.push({ code: 'o', box: b });
     R.push({ code: 'f', box: new THREE.Box3(new THREE.Vector3(-3.9, 0, -2.9), new THREE.Vector3(3.9, 0.05, 2.9)) });
-    R.push({ code: 'x', box: new THREE.Box3(new THREE.Vector3(-3.9, 0, -2.9), new THREE.Vector3(3.9, 1.3, 2.9)) });
     this.regionList = R;
   }
+  // the places a model may go (catalogue "at"): t (tables) includes the sideboard (y); b (fruit bowl) stands
+  // on a table; food never on the floor or the hearth; everyday things only within reach
   codesFor(it) {
-    const d = it.def, codes = d.at.filter((c) => c !== 'w' && c !== 'b');
+    const d = it.def, codes = d.at.filter((c) => c !== 'w' && c !== 'b' && c !== 'g');
     if (d.at.includes('b') && !codes.includes('t')) codes.push('t');
-    if (!FOOD.has(d.word) && longest(d) <= 0.25) codes.push('x');
-    return FOOD.has(d.word) ? codes.filter((c) => c !== 'f' && c !== 'h' && c !== 'x') : codes;
+    if (codes.includes('t') && !codes.includes('y')) codes.push('y');
+    const out = FOOD.has(d.word) ? codes.filter((c) => c !== 'f' && c !== 'h') : codes;
+    if (d.use === 'e') out.reach = true;
+    return out;
+  }
+  // size at a place (catalogue "scale", e.g. plants: full size on the floor, smaller on tables)
+  scaleAt(d, code) {
+    const s = d.scale;
+    if (!s) return 1;
+    return s[code] ?? (code === 'y' ? s.t : undefined) ?? 1;
+  }
+  minScale(d) { return d.scale ? Math.min(1, ...Object.values(d.scale)) : 1; }
+  // a top with room left (one thing on a small table or a seat, a few on large tops, never two Target Objects)
+  hostFree(host) {
+    if (!host) return true;
+    const cap = HOST_CAP[host.userData.hostKind];
+    if (!cap) return true;
+    const u = this.hostUse.get(host);
+    return !u || (u.n < cap && (this.passive || !u.to));
+  }
+  useHost(host, isTO) {
+    if (!host || !HOST_CAP[host.userData.hostKind]) return;
+    const u = this.hostUse.get(host) || { n: 0, to: 0 };
+    u.n++; if (isTO) u.to++;
+    this.hostUse.set(host, u);
   }
   surfacePoint(rnd, solids, minRoom, codes) {
     const down = new THREE.Vector3(0, -1, 0);
@@ -266,10 +342,13 @@ export class Targets {
       const ok = [];
       hits.forEach((h, i) => {
         if (this.normalOf(h).y < 0.9) return;
+        if (codes.reach && h.point.y > REACH) return;
         const code = this.classify(h);
         if (!codes.includes(code)) return;
+        const host = code === 'o' ? null : this.hostOf(h.object);
+        if (!this.hostFree(host)) return;
         const above = i > 0 ? hits[i - 1].point.y : 3.1;
-        if (above - h.point.y >= minRoom) { const p = h.point.clone(); p.room = above - h.point.y; p.code = code; p.obj = h.object; ok.push(p); }
+        if (above - h.point.y >= minRoom) { const p = h.point.clone(); p.room = above - h.point.y; p.code = code; p.obj = h.object; p.host = host; ok.push(p); }
       });
       if (ok.length) return ok[Math.floor(rnd() * ok.length)];
     }
@@ -284,35 +363,89 @@ export class Targets {
   }
 
   // ---------------------------------------------------------------- literal placements
-  placeFlat(it, rnd, solids, taken, s, L) {
-    const bs = it.box.getSize(new THREE.Vector3()).multiplyScalar(s), r = Math.max(bs.x, bs.z) / 2;
+  placeFlat(it, rnd, solids, taken, s0, L) {
+    const d = it.def, b0 = it.box.getSize(new THREE.Vector3());
     const codes = this.codesFor(it);
     for (let a = 0; a < 60; a++) {
-      const p = this.surfacePoint(rnd, solids, bs.y + 0.03, codes);
-      if (!p || this.near(p, taken, r)) continue;
+      const p = this.surfacePoint(rnd, solids, b0.y * s0 * this.minScale(d) + 0.03, codes);
+      if (!p) continue;
+      const s = s0 * this.scaleAt(d, p.code);                       // e.g. a houseplant: smaller on a table
+      const bs = b0.clone().multiplyScalar(s), r = Math.max(bs.x, bs.z) / 2;
+      if (p.room < bs.y + 0.03 || this.near(p, taken, r)) continue;
       if (!this.passive && this.avoid.has(this.zoneKey(p)) && rnd() < 0.75) continue;
       if (!this.passive && this.tooAlike(it, p) && rnd() < 0.8) continue;
       const m = new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromAxisAngle(UP, rnd() * Math.PI * 2), new THREE.Vector3(s, s, s));
       if (!this.supported(it, m, p.y, solids)) continue;
       const adj = this.touching(it, m, solids);
+      if ((p.code === 'f' || p.code === 'h') && adj < 1) continue;   // never out on the open floor (OS-36: 4.3.2)
       const vis = this.visible(this.posePoints(it, m, 0.8), solids);
       const tucked = p.room !== undefined && p.room < 0.6 && vis <= (this.level === 'high' ? 0.75 : 0.95);
-      const display = p.code === 'k' || r > 0.15;     // big collectibles (and bookcase tops) are on display: no cover rule
+      // on display (no cover rule): big things, bookcase tops, and collectibles on the mantel, shelves or sideboard
+      const display = r > 0.15 || p.code === 'k' || (d.use === 'c' && (p.code === 'm' || p.code === 's' || p.code === 'y'));
       if (vis < L.minVis || !(this.relaxed || display || COVER[this.level](adj, vis) || tucked)) continue;
       if (!this.clear(it, m, solids)) continue;
-      return { m, kind: 'flat', at: p, vis, adj, r };
+      return { m, kind: 'flat', at: p, vis, adj, r, host: p.host };
     }
     return null;
   }
+  // RESTING (v16.1, OS-36: 4.1.2): the surface is under its feet – under the WHOLE underside for boards and
+  // cables (support "full": chessboard, gamepad) – and nothing pokes up into it (trunk straps, a book's edge)
   supported(it, m, y, solids) {
-    const pts = this.posePoints(it, m, 0.75).slice(1).filter((_, i) => !(i & 2));
-    const down = new THREE.Vector3(0, -1, 0);
+    const full = it.def.support === 'full', tol = it.def.word === 'pillow' ? 0.035 : 0.006;   // (a pillow is soft: it settles into a curved seat)
+    const b = it.box, c = b.getCenter(new THREE.Vector3()), h = b.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+    const rise = Math.min(h.y * 2 * new THREE.Vector3().setFromMatrixScale(m).x, 0.08);
+    const down = new THREE.Vector3(0, -1, 0), q = new THREE.Vector3();
+    const e = full ? 0.92 : 0.75;
+    // the four corners first (cheap), then the middle and edges – and, under bigger things, a grid no wider
+    // than 8 cm (a suitcase must never stand over a lamp foot)
+    const pts = [[-e, -e], [e, -e], [-e, e], [e, e], [0, 0], [0, -e], [0, e], [-e, 0], [e, 0]];
+    if (full) for (const i of [-0.45, 0.45]) for (const k of [-e, -0.45, 0, 0.45, e]) pts.push([i, k], [k, i]);
+    const sc = new THREE.Vector3().setFromMatrixScale(m).x;
+    const nx = Math.min(8, Math.ceil(2 * h.x * sc / 0.08)), nz = Math.min(8, Math.ceil(2 * h.z * sc / 0.08));
+    if (nx > 2 || nz > 2) for (let a = 0; a <= nx; a++) for (let b2 = 0; b2 <= nz; b2++) pts.push([-0.95 + 1.9 * a / nx, -0.95 + 1.9 * b2 / nz]);
     let ok = 0;
-    pts.forEach((p) => {
-      const h = this.cast(new THREE.Vector3(p.x, y + 0.03, p.z), down, 0.06, solids)[0];
-      if (h && Math.abs(h.point.y - y) < 0.012) ok++;
-    });
+    for (let n = 0; n < pts.length; n++) {
+      const [i, k] = pts[n];
+      q.set(c.x + i * h.x, b.min.y, c.z + k * h.z).applyMatrix4(m);
+      const hit = this.cast(new THREE.Vector3(q.x, y + rise, q.z), down, rise + 0.03, solids)[0];
+      if (hit && hit.point.y > y + tol) return false;              // something pokes up into it
+      const on = hit && Math.abs(hit.point.y - y) < tol;
+      if (full && !on) return false;
+      if (on && n < 4) ok++;
+      if (n === 3 && ok < 3) return false;
+    }
     return ok >= 3;
+  }
+  // which way up (catalogue "up"): upright things and faces never turned over; others only when propped
+  canFlip(it) { const u = it.def.up; return u !== 'upright' && u !== 'faceup' && u !== 'hang'; }
+  // the model's own surface points (a sample of its vertices) – it rests on its real shape, not its box
+  restPts(it) {
+    const g = it.group;
+    if (g.userData.restPts) return g.userData.restPts;
+    g.updateMatrixWorld(true);
+    const inv = g.matrixWorld.clone().invert(), v = new THREE.Vector3(), out = [];
+    let total = 0;
+    for (const o of g.userData.meshes) total += o.geometry.attributes.position.count;
+    const step = Math.max(1, Math.floor(total / 2500));
+    for (const o of g.userData.meshes) {
+      const M = inv.clone().multiply(o.matrixWorld), pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += step) { v.fromBufferAttribute(pos, i).applyMatrix4(M); out.push(v.x, v.y, v.z); }
+    }
+    g.userData.restPts = new Float32Array(out);
+    return g.userData.restPts;
+  }
+  // lowest point, and deepest point along a direction, of the model in pose m
+  extremes(it, m, into = null) {
+    const P = this.restPts(it), e = m.elements, v = new THREE.Vector3();
+    let minY = Infinity, maxIn = -Infinity;
+    const low = new THREE.Vector3();
+    for (let i = 0; i < P.length; i += 3) {
+      const x = P[i], y = P[i + 1], z = P[i + 2];
+      v.set(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]);
+      if (v.y < minY) { minY = v.y; low.copy(v); }
+      if (into) maxIn = Math.max(maxIn, v.dot(into));
+    }
+    return { minY, maxIn, low };
   }
   touching(it, m, solids) {
     const c = new THREE.Vector3().setFromMatrixPosition(m);
@@ -347,7 +480,7 @@ export class Targets {
       if (!best) continue;
       const tilt = (0.12 + rnd() * 0.55);
       const up = UP.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(best.n, -Math.sin(tilt)).normalize();
-      if (rnd() < 0.5) up.negate();
+      if (rnd() < 0.5 && this.canFlip(it)) up.negate();
       let thin = best.n.clone().sub(up.clone().multiplyScalar(best.n.dot(up))).normalize();
       thin.applyAxisAngle(up, (rnd() - 0.5) * 1.6);
       const third = new THREE.Vector3().crossVectors(up, thin).normalize();
@@ -358,22 +491,21 @@ export class Targets {
       const vis = this.visible(this.posePoints(it, m, 0.8), solids);
       if (vis < L.minVis) continue;
       if (this.level !== 'low' && vis > 0.92 && rnd() < 0.6) continue;
-      return { m, kind: 'lean', at: p, vis, r: len / 2 };
+      return { m, kind: 'lean', at: p, vis, r: len / 2, host: p.host };
     }
     return null;
   }
+  // its lowest real point touches the surface (v16.1: the model's own shape – a round pocket watch no longer floats)
   baseRests(it, m, solids) {
-    const pts = this.posePoints(it, m, 1).slice(1);
-    const low = pts.reduce((a, p) => (p.y < a.y ? p : a));
+    const { low } = this.extremes(it, m);
     const h = this.cast(low.clone().setY(low.y + 0.02), new THREE.Vector3(0, -1, 0), 0.05, solids)[0];
-    return !!h && Math.abs(h.point.y - low.y) < 0.015;
+    return !!h && Math.abs(h.point.y - low.y) < 0.006;
   }
   fitPose(it, rot, s, y, facePoint, faceN, slide = 0) {
     const m = rot.clone().scale(new THREE.Vector3(s, s, s));
     const pts = this.posePoints(it, m, 1);
-    let minY = Infinity, maxIn = -Infinity;
     const into = faceN ? faceN.clone().negate() : null;
-    pts.forEach((p) => { minY = Math.min(minY, p.y); if (into) maxIn = Math.max(maxIn, p.dot(into)); });
+    const { minY, maxIn } = this.extremes(it, m, into);            // its real shape, not its box
     const t = new THREE.Vector3(0, y - minY + 0.0008, 0);
     if (into) {
       const want = facePoint.dot(into) - 0.001;
@@ -398,7 +530,7 @@ export class Targets {
         if (gap < size.y + 0.003 || gap > size.y + 0.035) continue;
         const mid = o.clone().addScaledVector(d, (h1.distance - h2.distance) / 2);
         const up = UP.clone().applyAxisAngle(d, (rnd() - 0.5) * 0.8);
-        if (rnd() < 0.5) up.negate();
+        if (rnd() < 0.5 && this.canFlip(it)) up.negate();
         const third = new THREE.Vector3().crossVectors(up, d).normalize();
         const rot = new THREE.Matrix4().makeBasis(up, d.clone(), third);
         const m = this.fitPose(it, rot, s, p.y, null, null);
@@ -408,23 +540,45 @@ export class Targets {
         const vis = this.visible(this.posePoints(it, m, 0.8), solids);
         if (vis < L.minVis * 0.7) continue;
         mid.code = p.code;
-        return { m, kind: 'wedge', at: mid, vis, r: size.x / 2 };
+        return { m, kind: 'wedge', at: mid, vis, r: size.x / 2, host: p.host };
       }
     }
     return null;
   }
+  // THE GLOBE (catalogue "g", OS-38/39): standing on its top, or lying on its side on the rim of its base –
+  // the round cap on the three legs, around the stem. Sized by the catalogue (chess pieces 80 %).
   placeSocket(it, rnd, solids) {
-    const sockets = (this.fx.sockets || []).filter((k) => k.kind === 'globe-top');
-    if (!sockets.length || this.socketUsed) return null;
-    const sk = sockets[0];
-    sk.parent.updateMatrixWorld(true);
-    const at = sk.pos.clone().applyMatrix4(sk.parent.matrixWorld);
-    for (let k = 0; k < 6; k++) {   // resting on the globe, clear of the brass meridian ring
-      const m = new THREE.Matrix4().compose(at, new THREE.Quaternion().setFromAxisAngle(UP, rnd() * Math.PI * 2), new THREE.Vector3(1, 1, 1));
-      if (!this.clear(it, m, solids)) continue;
-      this.socketUsed = true;
-      at.code = 'x';
-      return { m, kind: 'socket', at, vis: 1, r: 0.05 };
+    const d = it.def, s = this.scaleAt(d, 'g');
+    const free = (this.fx.sockets || []).filter((k) => (k.kind === 'globe-top' || k.kind === 'globe-lip') && !this.socketsUsed.has(k));
+    for (const sk of shuffle(free, rnd)) {
+      sk.parent.updateMatrixWorld(true);
+      const at = sk.pos.clone().applyMatrix4(sk.parent.matrixWorld);
+      if (sk.kind === 'globe-top') {   // the globe's real surface there (its look may round it a little higher)
+        const h = this.cast(at.clone().setY(at.y + 0.3), new THREE.Vector3(0, -1, 0), 0.4, solids)[0];
+        if (h) at.y = h.point.y;
+      }
+      for (let k = 0; k < 8; k++) {
+        const a = rnd() * Math.PI * 2;
+        let m;
+        if (sk.kind === 'globe-top') {
+          m = new THREE.Matrix4().compose(at, new THREE.Quaternion().setFromAxisAngle(UP, a), new THREE.Vector3(s, s, s));
+        } else {
+          // lying across the rim: its height runs round the stem, its side rests on the cap
+          const R = new THREE.Vector3(Math.cos(a), 0, Math.sin(a)), T = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a));
+          m = new THREE.Matrix4().makeBasis(R, T, new THREE.Vector3().crossVectors(R, T)).scale(new THREE.Vector3(s, s, s));
+          const size = it.box.getSize(new THREE.Vector3()).multiplyScalar(s);
+          const half = Math.max(size.x, size.z) / 2, r0 = sk.inner + half + 0.004;
+          if (Math.hypot(r0, size.y / 2) > sk.outer + 0.008) break;   // too long for the rim
+          const mid = it.box.getCenter(new THREE.Vector3()).applyMatrix4(m);
+          const { minY } = this.extremes(it, m);
+          const want = at.clone().addScaledVector(R, r0);
+          m.premultiply(new THREE.Matrix4().makeTranslation(want.x - mid.x, at.y - minY + 0.0008, want.z - mid.z));
+        }
+        if (!this.clear(it, m, solids)) continue;
+        this.socketsUsed.add(sk);
+        const p = at.clone(); p.code = 'g';
+        return { m, kind: 'socket', at: p, vis: 1, r: 0.05 };
+      }
     }
     return null;
   }
@@ -440,9 +594,13 @@ export class Targets {
       { n: [-1, 0, 0], o: [4.0, 0, 0], u: [0, 0, 1], a: [-2.9, 2.9], w: 0.8, cut: 'right' },  // right wall
     ];
     const chimney = { n: [0, 0, 1], o: [0, 0, -2.75], u: [1, 0, 0], a: [-0.8, 0.8], y: [1.35, 3.05], chimney: true };
-    const weapon = WEAPONS.has(it.def.id);
+    const d = it.def, id = d.id;
+    const weapon = WEAPONS.has(id);
     const size = it.box.getSize(new THREE.Vector3());
     const thinAxis = size.y < size.z ? 'y' : 'z', thick = Math.min(size.y, size.z);
+    const mount = CONCEALED.has(id) ? 'none' : BRACKET[id] ? 'bracket' : NAIL.has(id) ? 'nail' : 'pegs';
+    const standoff = BRACKET[id] || 0;
+    const orient = this.wallOrient(it);
     // the front and right walls are cut away in the Diorama: fewer things there, and at most one Target
     // Object per round (OS-25: 5.4 – an extra challenge, not the rule)
     const walls = W.filter((z) => !z.cut || this.passive || (!this.cutWallTO && this.level !== 'low'));
@@ -452,23 +610,33 @@ export class Targets {
       const Z = weapon && rnd() < 0.7 ? chimney : pickWall();
       const n = new THREE.Vector3(...Z.n), u = new THREE.Vector3(...Z.u);
       const t = Z.a[0] + rnd() * (Z.a[1] - Z.a[0]);
-      const yr = Z.y || [1.0, 2.95], y = yr[0] + rnd() * (yr[1] - yr[0]);
-      const upright = it.def.pose === 'upright' && thinAxis === 'z' && !weapon;
-      const th = upright ? (rnd() - 0.5) * 0.1 : weapon ? (rnd() < 0.5 ? -1 : 1) * (0.25 + rnd() * 0.6) : (rnd() - 0.5) * 0.5;
+      const yr = orient.y || Z.y || [1.0, 2.95], y = yr[0] + rnd() * (yr[1] - yr[0]);
+      const upright = (d.pose === 'upright' && thinAxis === 'z' && !weapon) || orient.th !== undefined;
+      let th = upright ? (orient.th ?? (rnd() - 0.5) * 0.1) : weapon ? (rnd() < 0.5 ? -1 : 1) * (0.25 + rnd() * 0.6) : (rnd() - 0.5) * 0.5;
+      if (mount === 'bracket') th = 0;                                       // a lantern hangs plumb
+      if (orient.low && !upright) th = -orient.low * Math.abs(th) * (rnd() < 0.25 ? 0 : 1);   // rifle: level, or stock lower
       const along = u.clone().multiplyScalar(Math.cos(th)).addScaledVector(UP, Math.sin(th));
       const basis = new THREE.Matrix4();
-      if (thinAxis === 'y') basis.makeBasis(along, n, new THREE.Vector3().crossVectors(along, n));
+      if (thinAxis === 'y') basis.makeBasis(along, orient.flip ? n.clone().negate() : n, new THREE.Vector3().crossVectors(along, orient.flip ? n.clone().negate() : n));
       else basis.makeBasis(along, new THREE.Vector3().crossVectors(n, along), n);
-      const c = new THREE.Vector3(...Z.o).addScaledVector(u, t).setY(y).addScaledVector(n, thick / 2 + 0.006);
+      if (orient.turn) basis.multiply(orient.turn);
+      const c = new THREE.Vector3(...Z.o).addScaledVector(u, t).setY(y).addScaledVector(n, thick / 2 + 0.006 + standoff);
       const lc = it.box.getCenter(new THREE.Vector3()).applyMatrix4(basis);
       const m = new THREE.Matrix4().makeTranslation(c.x - lc.x, c.y - lc.y, c.z - lc.z).multiply(basis);
       const pts = this.posePoints(it, m, 0.85);
       if (pts.some((p) => p.y < 0.95 || p.y > 3.1)) continue;
+      if (d.use === 'e' && pts.some((p) => p.y > REACH_WALL)) continue;     // everyday tools within reach
       if (this.near(c, taken, Math.max(size.x, size.y, size.z) / 2)) continue;
       // the wall right behind every corner (not a window, door, bookcase or picture)
       const back = n.clone().negate();
-      const backed = [pts[0], ...pts.slice(1).filter((p, i) => p.clone().sub(c).dot(n) < 0.001 || i < 4)].every((p) => {
-        const h = this.cast(p.clone().addScaledVector(n, 0.15), back, 0.15 + thick + 0.05, solids)[0];
+      // (v16.1: a grid over its whole face, not just its corners – a diagonal axe must not overlap a picture frame)
+      const lb = it.box, lc0 = lb.getCenter(new THREE.Vector3()), lh = lb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+      const grid = [];
+      for (const a of [-0.9, -0.45, 0, 0.45, 0.9]) for (const b of [-0.8, 0, 0.8]) {
+        grid.push(new THREE.Vector3(lc0.x + a * lh.x, thinAxis === 'y' ? lc0.y : lc0.y + b * lh.y, thinAxis === 'y' ? lc0.z + b * lh.z : lc0.z).applyMatrix4(m));
+      }
+      const backed = [pts[0], ...pts.slice(1).filter((p, i) => p.clone().sub(c).dot(n) < 0.001 || i < 4), ...grid].every((p) => {
+        const h = this.cast(p.clone().addScaledVector(n, 0.15), back, 0.15 + thick + standoff + 0.05, solids)[0];
         return h && h.object.userData.wallFace && this.normalOf(h).dot(n) > 0.9;
       });
       if (!backed || !this.clear(it, m, solids)) continue;
@@ -476,9 +644,110 @@ export class Targets {
       if (vis < 0.2) continue;
       c.code = Z.chimney ? 'c' : 'w';
       if (Z.cut && !this.passive) this.cutWallTO = true;
-      return { m, kind: 'wall', at: c, vis, r: Math.max(size.x, size.y) / 2, cut: Z.cut || null };
+      return { m, kind: 'wall', at: c, vis, r: Math.max(size.x, size.y) / 2, cut: Z.cut || null, n, along, wall: new THREE.Vector3(...Z.o).dot(n), mount };
     }
     return null;
+  }
+  // how a model must face on a wall (OS-36: 4.1.2), worked out once from its own shape:
+  //   sconce – upright like a light fixture, 1.6–2.1 m up · shield – point down · rifle – stock never higher than the muzzle
+  wallOrient(it) {
+    const g = it.group, id = it.def.id;
+    if (g.userData.wallOrient) return g.userData.wallOrient;
+    let o = {};
+    const P = this.restPts(it), size = it.box.getSize(new THREE.Vector3()), c = it.box.getCenter(new THREE.Vector3());
+    // how wide the model is near each end of its long (x) axis: the heavy / blunt end is the wider one
+    const widthAt = (sign) => {
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < P.length; i += 3) if ((P[i] - c.x) * sign > size.x * 0.3) { const w = size.y < size.z ? P[i + 2] : P[i + 1]; lo = Math.min(lo, w); hi = Math.max(hi, w); }
+      return hi - lo;
+    };
+    if (id === 'ph-kite_shield') o = { th: widthAt(1) < widthAt(-1) ? -Math.PI / 2 : Math.PI / 2 };   // the narrow end (the point) down
+    else if (id === 'ph-bolt_action_rifle_7_62') o = { low: widthAt(1) > widthAt(-1) ? 1 : -1 };      // the wide end (the stock) lower
+    else if (id === 'ph-industrial_wall_sconce') o = { th: 0, y: [1.6, 2.1] };
+    g.userData.wallOrient = o;
+    return o;
+  }
+  // WALL HARDWARE (OS-39: 2.1.1): iron pegs under a tool or weapon (two under long ones, so it can't tip),
+  // an arm with an upturned end for a lantern's handle, a nail for a clipboard or a mask. One merged mesh.
+  hooksFor(it, f) {
+    if (!f.mount || f.mount === 'none') return [];
+    const geos = [], n = f.n, along = f.along, meshes = it.group.userData.meshes;
+    it.group.updateMatrixWorld(true);
+    const s = it.group.scale.x, size = it.box.getSize(new THREE.Vector3()).multiplyScalar(s);
+    const thick = Math.min(size.y, size.z), c = it.box.getCenter(new THREE.Vector3()).applyMatrix4(f.m);
+    const depthOf = (p) => p.dot(n) - f.wall;
+    const onWall = (p, dd) => p.clone().addScaledVector(n, dd - depthOf(p));
+    const rod = (from, to, r) => {
+      const len = from.distanceTo(to), g = new THREE.CylinderGeometry(r, r, len, 6);
+      const q = new THREE.Quaternion().setFromUnitVectors(UP, to.clone().sub(from).normalize());
+      g.applyMatrix4(new THREE.Matrix4().compose(from.clone().add(to).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)));
+      geos.push(g);
+    };
+    const ray = this.ray;
+    const surface = (q, dir, depths) => {          // first point of the model met going along dir (UP or down)
+      let best = null;
+      for (const dd of depths) {
+        ray.set(onWall(q, dd).addScaledVector(dir, -0.6), dir);
+        ray.far = 1.2;
+        const h = ray.intersectObjects(meshes, false)[0];
+        if (h && (!best || (dir.y > 0 ? h.point.y < best : h.point.y > best))) best = h.point.y;
+      }
+      return best;
+    };
+    const depths = [0.3, 0.5, 0.7].map((k) => 0.006 + thick * k);
+    if (f.mount === 'pegs') {
+      const L = size.x, ts = L >= 0.25 ? [-0.3 * L, 0.3 * L] : [0];
+      for (const t0 of ts) {
+        let y = null, q = null;
+        for (const k of [1, 0.8, 1.2, 0.6, 0.4]) { q = c.clone().addScaledVector(along, t0 * k); y = surface(q, UP, depths); if (y !== null) break; }
+        if (y === null) continue;
+        const base = onWall(q, 0).setY(y - 0.005), front = depthOf(base) + thick + 0.02;
+        rod(base, base.clone().addScaledVector(n, front), 0.005);                               // the peg
+        const tip = base.clone().addScaledVector(n, front - 0.004);
+        rod(tip.clone().setY(y - 0.009), tip.clone().setY(y + 0.012), 0.004);                  // its upturned end
+        rod(base.clone().addScaledVector(n, -0.001), base.clone().addScaledVector(n, 0.005), 0.012);   // a round plate on the wall
+      }
+    } else {
+      const dc = depthOf(c), top = surface(c, new THREE.Vector3(0, -1, 0), f.mount === 'bracket' ? [dc] : depths);
+      if (top === null) return geos;
+      if (f.mount === 'bracket') {
+        const y = top - 0.006, base = onWall(c, 0).setY(y);
+        rod(base, base.clone().addScaledVector(n, dc + 0.02), 0.0045);                          // the arm, through the handle
+        const tip = base.clone().addScaledVector(n, dc + 0.018);
+        rod(tip, tip.clone().setY(y + 0.018), 0.0045);                                           // its upturned end
+        geos.push(new THREE.BoxGeometry(0.03, 0.08, 0.006).applyMatrix4(new THREE.Matrix4().compose(base.clone().addScaledVector(n, 0.003), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n), new THREE.Vector3(1, 1, 1))));
+      } else {
+        const y = top - Math.min(0.025, size.y * 0.1), base = onWall(c, 0).setY(y);
+        rod(base, base.clone().addScaledVector(n, thick + 0.012), 0.0025);                      // the nail
+        const head = base.clone().addScaledVector(n, thick + 0.012);
+        rod(head, head.clone().addScaledVector(n, 0.003), 0.006);                               // its head
+      }
+    }
+    return geos;
+  }
+  buildHooks() {
+    for (const h of this.hookMeshes || []) { h.removeFromParent(); h.geometry.dispose(); }
+    this.hookMeshes = [];
+    const byCut = new Map();
+    for (const it of this.items) {
+      if (!it.form || it.form.kind !== 'wall') continue;
+      const geos = this.hooksFor(it, it.form);
+      if (!geos.length) continue;
+      const key = it.form.cut || '';
+      if (!byCut.has(key)) byCut.set(key, []);
+      byCut.get(key).push(...geos.map((g) => (g.index ? g.toNonIndexed() : g)));
+    }
+    for (const [key, geos] of byCut) {
+      for (const g of geos) { for (const a of Object.keys(g.attributes)) if (a !== 'position' && a !== 'normal') g.deleteAttribute(a); }
+      const mesh = new THREE.Mesh(mergeGeometries(geos, false), HOOK_MAT);
+      geos.forEach((g) => g.dispose());
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.userData.decor = true;
+      mesh.userData.cutTag = key || null;
+      mesh.raycast = () => {};
+      this.root.add(mesh);
+      this.hookMeshes.push(mesh);
+    }
   }
 
   placeLiteral(it, rnd, solids, taken, L) {
@@ -492,8 +761,8 @@ export class Targets {
       const w = { ...L.modes };
       const lieable = d.pose === 'lie' && longest(d) <= 0.6;
       if (!lieable) { w.lean = 0; w.wedge = 0; }
-      if (longest(d) > 0.07 || FOOD.has(d.word)) w.socket = 0;   // only tiny things rest on the globe
-      if (this.passive) w.socket = 0;
+      if (!d.at.includes('g')) w.socket = 0;                      // only what the catalogue allows on the globe (OS-38)
+      else w.socket = Math.max(w.socket, 0.15);
       const pool = Object.entries(w).filter(([, v]) => v > 0);
       while (pool.length) {
         const sum = pool.reduce((a, [, v]) => a + v, 0);
@@ -649,7 +918,8 @@ export class Targets {
     this.reliefs = [];
     for (const it of this.items) { it.group.removeFromParent(); this.setRole(it, null); }
     this.items = [];
-    this.socketUsed = false;
+    this.socketsUsed = new Set();
+    this.hostUse = new Map();
     this.cutWallTO = false;
     if (this.fx.globeBall) this.fx.globeBall.rotation.y = rnd() * Math.PI * 2;
     if (this.fx.rug) this.fx.rug.render(null);
@@ -684,27 +954,20 @@ export class Targets {
       this.placeShadow(it, f);
       this.items.push(it);
     };
-    // plants in their corner (OS-31): sometimes one of them is a Target Object
-    for (const it of [...pos, ...tos].filter((x) => x.def.id.startsWith('ph-potted_plant'))) {
-      const sp = (this.fx.plantSpots || {})[it.def.id];
-      if (!sp) continue;
-      const m = new THREE.Matrix4().compose(new THREE.Vector3(sp[0] + (rnd() - 0.5) * 0.04, 0, sp[2] + (rnd() - 0.5) * 0.04), new THREE.Quaternion().setFromAxisAngle(UP, rnd() * Math.PI * 2), new THREE.Vector3(1, 1, 1));
-      const at = new THREE.Vector3(sp[0], 0, sp[2]); at.code = 'f';
-      it.form = { m, kind: 'flat', at, vis: 1, r: 0.35 };
-      taken.push({ p: at, r: 0.35 });
-      show(it, it.form);
-      it.fixed = true;
-    }
+    // (v16.1, OS-36: 5.1.1: the houseplants no longer stand in fixed corners – they are placed like everything
+    // else: on the floor beside furniture or a wall, or smaller on the sideboard, mantel, desk or trunk)
     // Passive Objects: displays first (walls, bookcase tops, floor), then everything else, hidden by the
-    // same rules as the Target Objects (OS-25: 7) – with an easier rule only if no spot was found
+    // same rules as the Target Objects (OS-25: 7, OS-37: 3.2) – with the easiest cover rule if no spot was
+    // found, never out in the open (a PO that finds no fair spot is left out this round)
     this.passive = true;
     const byDisplay = (it) => (it.def.at.includes('w') ? 0 : it.def.at.includes('k') ? 1 : longest(it.def) > 0.45 ? 2 : 3);
     for (const it of pos.filter((x) => !x.fixed).sort((a, b) => byDisplay(a) - byDisplay(b))) {
       let f = this.placeLiteral(it, rnd, solids, taken, L);
-      if (!f) { this.relaxed = true; f = this.placeLiteral(it, rnd, solids, taken, LEVELS.low); this.relaxed = false; }
+      if (!f && this.level !== 'low') { const lvl = this.level; this.level = 'low'; f = this.placeLiteral(it, rnd, solids, taken, LEVELS.low); this.level = lvl; }
       it.form = f;
       if (!f) { this.setRole(it, null); continue; }
       taken.push({ p: f.at, r: f.r || 0.1 });
+      this.useHost(f.host, false);
       show(it, f);
       solids.push(it.group.userData.proxyMesh);
       solids.balls.push(new THREE.Sphere().setFromPoints(this.posePoints(it, f.m, 1)));
@@ -741,6 +1004,7 @@ export class Targets {
       }
       it.form = form;
       if (form && form.at) taken.push({ p: form.at, r: form.r || 0.08 });
+      if (form) this.useHost(form.host, true);
       if (form && form.m) show(it, form);
     }
     for (const [mtl, side] of sides) mtl.side = side;
@@ -756,6 +1020,7 @@ export class Targets {
       return sub || null;
     }).filter(Boolean);
     this.zonesUsed = this.list.map((it) => this.zoneKey(it.form.at));
+    this.buildHooks();
     this.mergeShadows();
     this.root.updateMatrixWorld(true);
     this.roll();
@@ -769,7 +1034,7 @@ export class Targets {
       if (!g) continue;
       if (!g.parent) {
         if (s.kind !== 'frame') g.userData.hostKind = s.kind;
-        g.traverse((o) => { if (o.isMesh && !o.userData.proxy) o.userData.solidMesh = true; });
+        g.traverse((o) => { if (o.isMesh && !o.userData.proxy) { o.userData.solidMesh = true; accelerate(o); } });   // (fast rays – fastray.js)
         g.userData.proxyMesh.userData.proxy = false;              // real shape: things may rest on it
         g.userData.proxyMesh.removeFromParent();
         if (s.picture && this.fx.makePicture && this.fx.makePicture(s.picture, g)) g.userData.sampler.set(g.userData.sampler.name);   // wall art drawn into the frame (in the current look)
@@ -778,7 +1043,13 @@ export class Targets {
       }
       const k = s.fixed ? 0 : 1;                                   // pictures stay put; furniture is nudged
       g.position.set(s.p[0] + (rnd() - 0.5) * 0.06 * k, s.p[1], s.p[2] + (rnd() - 0.5) * 0.06 * k);
-      g.rotation.set(0, s.ry + (rnd() - 0.5) * 0.1 * k, 0);
+      g.rotation.set(-(s.lean || 0), s.ry + (rnd() - 0.5) * 0.1 * k, 0, 'YXZ');
+      if (s.lean) {   // v16.1: a frame leaning against the wall – its tilted bottom edge rests on the surface, its top touches the wall
+        g.updateMatrixWorld(true);
+        const b = new THREE.Box3().setFromObject(g.children[0]);
+        g.position.y += s.p[1] - b.min.y;
+        if (s.wallZ) g.position.z += s.wallZ - b.max.z;
+      }
       g.userData.hostBox = null;
     }
   }

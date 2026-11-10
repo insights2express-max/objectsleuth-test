@@ -57,13 +57,18 @@ export function buildStudy() {
   globe.group.position.set(3.45, 0, -1.7);
   // SOCKET: a small object may rest on top of the globe, just off the meridian ring (OS-19: 5.4.1)
   fx.sockets.push({ kind: 'globe-top', parent: globe.group, pos: new THREE.Vector3(0, 1.272, 0.07), out: new THREE.Vector3(0, 1, 0), flat: true });
+  // v16.1 (OS-39: 1.1): the rim of the round cap on the three legs, around the stem – a small thing may lie on it
+  fx.sockets.push({ kind: 'globe-lip', parent: globe.group, pos: new THREE.Vector3(0, 0.54, 0), inner: 0.04, outer: 0.075 });
   root.add(globe.group);
   root.add(tag(group([buildChest(fx)], -1.3, 0, 2.3, 0.12), 'chest'));
   root.add(group([buildFireTools()], 1.3, 0, -2.4));
   root.add(group([buildLogBasket()], -1.43, 0, -2.36, 0.2));     // clear of the hearth
-  bookStack(r, books, 2.75, 0, 1.45, 5);
+  // v16.1 (OS-36: 4.1.2): books never on the open floor – the floor pile stands beside the bookcase
+  bookStack(r, books, 3.56, 0, -2.62, 5);
+  fx.bookZones = [new THREE.Box3(new THREE.Vector3(3.3, 0, -2.9), new THREE.Vector3(3.82, 0.45, -2.35))];
   root.add(tag(buildSideboard(), 'sideboard'));
   fx.books = makeBooks(books);
+  fx.books.userData.books = true;
   root.add(fx.books);
   // v16 (OS-31): imported furniture – the Victorian armchair replaces the coded one; small antique tables
   // and a chair beside the desk and armchair hold collectibles. Fixed pieces, only nudged each round.
@@ -75,10 +80,11 @@ export function buildStudy() {
     // wall art (OS-25: 8) in imported frames, pictures drawn in code: insects, stamps (may hold a Target
     // Object as a stamp) and a photograph on the sideboard
     { id: 'ph-fancy_picture_frame_01', p: [-3.982, 1.45, -2.47], ry: Math.PI / 2, kind: 'frame', picture: 'insects', fixed: true },
-    { id: 'ph-hanging_picture_frame_02', p: [-3.98, 1.38, 2.47], ry: Math.PI / 2, kind: 'frame', picture: 'stamps', fixed: true },
-    { id: 'ph-standing_picture_frame_02', p: [1.78, 0.82, 2.8], ry: Math.PI, kind: 'frame', picture: 'photo', fixed: true },
+    // v16.1 (OS-36: 7.1): the stamp and photo frames JM dropped are replaced by kept ones – the stamp album in
+    // the second gilt frame, the photograph in the small black frame, leaning on the sideboard against the wall
+    { id: 'ph-fancy_picture_frame_02', p: [-3.953, 1.42, 2.47], ry: Math.PI / 2, kind: 'frame', picture: 'stamps', fixed: true },
+    { id: 'ph-hanging_picture_frame_03', p: [1.78, 0.82, 2.8], ry: Math.PI, kind: 'frame', picture: 'photo', fixed: true, lean: 0.2, wallZ: 2.997 },
   ];
-  fx.plantSpots = { 'ph-potted_plant_02': [3.4, 0, 2.38], 'ph-potted_plant_01': [2.62, 0, 2.5] };   // OS-31: imported houseplants
   fx.makePicture = (kind, group) => makePicture(fx, kind, group);
   seatIntoRoom(root);
   fx.globeBall = globe.ball;
@@ -183,7 +189,7 @@ function seatIntoRoom(root) {
 // ---------------------------------------------------------------- floor & walls
 function buildFloor(r) {
   const g = new THREE.Group();
-  g.add(box(8.2, 0.28, 6.2, C.slab, -0.1, -0.3, -0.1));
+  g.add(sharp(box(8.2, 0.28, 6.2, C.slab, -0.1, -0.3, -0.1)));
   const rows = 15, pw = 6 / rows, shades = [C.floorA, C.floorB, C.floorC];
   for (let i = 0; i < rows; i++) {
     const z = -3 + pw * (i + 0.5);
@@ -200,14 +206,14 @@ function buildWalls(fx) {
   const g = new THREE.Group();
   const H = 3.2;
   // back wall, built around a tall narrow window opening (x 3.3..3.9, y 0.9..2.6)
-  const wf = (o) => { o.userData.wallFace = true; return o; };     // v16: things may hang on it
+  const wf = (o) => { o.userData.wallFace = true; return sharp(o); };     // v16: things may hang on it (v16.1: sharp edges)
   const bw = (x0, x1, y0, y1) => g.add(wf(box(x1 - x0, y1 - y0, 0.2, C.wall, (x0 + x1) / 2, y0, -3.1)));
   bw(-4.2, 3.3, 0, H); bw(3.9, 4.0, 0, H); bw(3.3, 3.9, 0, 0.9); bw(3.3, 3.9, 2.6, H);
   // left wall, built around a window opening (z 0..1.6, y 0.9..2.6)
   const lw = (z0, z1, y0, y1) => g.add(wf(box(0.2, y1 - y0, z1 - z0, C.wall, -4.1, y0, (z0 + z1) / 2)));
   lw(-3.0, 0.0, 0, H); lw(1.6, 3.0, 0, H); lw(0.0, 1.6, 0, 0.9); lw(0.0, 1.6, 2.6, H);
   // cut-away caps on top of the walls (the classic diorama look)
-  const capB = box(8.2, 0.02, 0.2, C.cap, -0.1, H, -3.1), capL = box(0.2, 0.02, 6, C.cap, -4.1, H, 0);
+  const capB = sharp(box(8.2, 0.02, 0.2, C.cap, -0.1, H, -3.1)), capL = sharp(box(0.2, 0.02, 6, C.cap, -4.1, H, 0));
   capB.castShadow = capL.castShadow = false;
   g.add(capB, capL);
   // wood panelling on the lower walls
@@ -232,13 +238,15 @@ function buildWalls(fx) {
 
   // window frame, glass, sill
   const fm = C.cream;
-  g.add(box(0.22, 0.07, 1.6, fm, -4.1, 2.53, 0.8));
-  g.add(box(0.22, 0.07, 1.6, fm, -4.1, 0.9, 0.8));
-  g.add(box(0.22, 1.7, 0.07, fm, -4.1, 0.9, 0.035));
-  g.add(box(0.22, 1.7, 0.07, fm, -4.1, 0.9, 1.565));
+  g.add(sharp(box(0.22, 0.07, 1.6, fm, -4.1, 2.53, 0.8)));
+  g.add(sharp(box(0.22, 0.07, 1.6, fm, -4.1, 0.9, 0.8)));
+  g.add(sharp(box(0.22, 1.7, 0.07, fm, -4.1, 0.9, 0.035)));
+  g.add(sharp(box(0.22, 1.7, 0.07, fm, -4.1, 0.9, 1.565)));
   g.add(box(0.05, 1.7, 0.04, fm, -4.1, 0.9, 0.8));
   g.add(box(0.05, 0.04, 1.6, fm, -4.1, 1.72, 0.8));
-  g.add(box(0.32, 0.07, 1.8, fm, -3.95, 0.875, 0.8));   // sill top 0.945, above the chair rail (0.93)
+  const sill = sharp(box(0.32, 0.07, 1.8, fm, -3.95, 0.875, 0.8));   // sill top 0.945, above the chair rail (0.93)
+  sill.userData.hostKind = 'sill';                          // v16.1: a place (window sill, OS-36: 4.1.2)
+  g.add(sill);
   const glassMat = new THREE.MeshStandardMaterial({   // v15: clearer, so the outdoor view shows through
     color: 0xcfe6f2, emissive: 0xdff3ff, emissiveIntensity: 0.25,
     transparent: true, opacity: 0.16, roughness: 0.1, flatShading: true,
@@ -248,13 +256,15 @@ function buildWalls(fx) {
   g.add(glass);
   fx.windowMats.push(glassMat);
   // back window (south-west facing): frame, glass, sill
-  g.add(box(0.6, 0.07, 0.22, fm, 3.6, 2.53, -3.1));
-  g.add(box(0.6, 0.07, 0.22, fm, 3.6, 0.9, -3.1));
-  g.add(box(0.07, 1.7, 0.22, fm, 3.335, 0.9, -3.1));
-  g.add(box(0.07, 1.7, 0.22, fm, 3.865, 0.9, -3.1));
+  g.add(sharp(box(0.6, 0.07, 0.22, fm, 3.6, 2.53, -3.1)));
+  g.add(sharp(box(0.6, 0.07, 0.22, fm, 3.6, 0.9, -3.1)));
+  g.add(sharp(box(0.07, 1.7, 0.22, fm, 3.335, 0.9, -3.1)));
+  g.add(sharp(box(0.07, 1.7, 0.22, fm, 3.865, 0.9, -3.1)));
   g.add(box(0.04, 1.7, 0.05, fm, 3.6, 0.9, -3.1));
   g.add(box(0.6, 0.04, 0.05, fm, 3.6, 1.72, -3.1));
-  g.add(box(0.74, 0.07, 0.3, fm, 3.6, 0.875, -2.95));
+  const sill2 = sharp(box(0.74, 0.07, 0.3, fm, 3.6, 0.875, -2.95));
+  sill2.userData.hostKind = 'sill';
+  g.add(sill2);
   const glass2 = mesh(new THREE.BoxGeometry(0.6, 1.7, 0.01), glassMat.clone(), false);
   glass2.position.set(3.6, 1.75, -3.12);
   g.add(glass2);
@@ -349,11 +359,15 @@ function buildWalls(fx) {
 // are cut away – the room looks exactly as before. They don't cast shadows themselves: the invisible
 // shadow-only shell (above) already blocks the sun on these sides, in every view.
 const noShadow = (o) => { o.castShadow = false; return o; };
+// v16.1 (OS-36: 4.4): the room's shell – walls, ceiling, floor slab, window and door frames – keeps SHARP edges in
+// every look. Rounded (Clay / Felt / Knit) walls left V-shaped grooves where two pieces meet, and sunlight
+// slipped through them: the bright lines at the wall / ceiling joints, the window corners and the hallway.
+function sharp(o) { o.userData.sharp = true; return o; }
 function buildFrontWall() {
   const g = new THREE.Group();
   g.userData.cut = 'front';
   const H = 3.2, z = 3.0;
-  const fw = noShadow(box(8.2, H + 0.3, 0.2, C.wall, -0.1, -0.3, z + 0.1));         // x −4.2..4.0
+  const fw = sharp(noShadow(box(8.2, H + 0.3, 0.2, C.wall, -0.1, -0.3, z + 0.1)));         // x −4.2..4.0
   fw.userData.wallFace = true;
   g.add(fw);
   // panelling (stops at the sideboard, x 0.4..2.0; starts after the left wall's rail – no overlaps)
@@ -375,7 +389,7 @@ function buildRightWall(fx) {
   const H = 3.2, x = 4.0;
   // v16 (OS-25: 3.3.1): the wall has a real door opening (z −0.05..0.85, up to 2.2 m); the door swings
   // into the room to a different angle each Scene Instance (sometimes shut), showing a hallway beyond
-  const ww = (z0, z1, y0, y1) => { const o = noShadow(box(0.2, y1 - y0, z1 - z0, C.wall, x + 0.1, y0, (z0 + z1) / 2)); o.userData.wallFace = true; g.add(o); };
+  const ww = (z0, z1, y0, y1) => { const o = sharp(noShadow(box(0.2, y1 - y0, z1 - z0, C.wall, x + 0.1, y0, (z0 + z1) / 2))); o.userData.wallFace = true; g.add(o); };
   ww(-3.2, -0.05, -0.3, H); ww(0.85, 3.2, -0.3, H); ww(-0.05, 0.85, 2.2, H);
   const pivot = new THREE.Group();
   pivot.position.set(x - 0.02, 0, -0.05);                                            // hinge side
@@ -396,15 +410,15 @@ function buildRightWall(fx) {
   fx.door = { pivot };
   // the hallway: floor, far wall with a picture rail, side walls, ceiling (seen only through the door)
   const hall = new THREE.Group();
-  hall.add(noShadow(box(2.0, 0.3, 2.2, C.floorB, x + 1.0, -0.302, 0.4)));          // (2 mm below the room's floor: no flush faces)
-  const hw = (w, h, d, px, py, pz) => hall.add(noShadow(box(w, h, d, 0xc9b48f, px, py, pz)));
+  hall.add(sharp(noShadow(box(2.0, 0.3, 2.2, C.floorB, x + 1.0, -0.302, 0.4))));          // (2 mm below the room's floor: no flush faces)
+  const hw = (w, h, d, px, py, pz) => hall.add(sharp(noShadow(box(w, h, d, 0xc9b48f, px, py, pz))));
   hw(0.1, 2.9, 2.2, x + 2.05, 0, 0.4); hw(1.8, 2.9, 0.1, x + 1.1, 0, -0.75); hw(1.8, 2.9, 0.1, x + 1.1, 0, 1.55);
-  hall.add(noShadow(box(1.8, 0.1, 2.2, 0xefe6d4, x + 1.1, 2.9, 0.4)));
+  hall.add(sharp(noShadow(box(1.8, 0.1, 2.2, 0xefe6d4, x + 1.1, 2.9, 0.4))));
   hall.add(noShadow(box(0.03, 0.9, 2.18, C.wainscot, x + 1.985, 0, 0.4)));
   hall.add(noShadow(box(0.05, 0.6, 0.8, C.brass, x + 1.97, 1.35, 0.3)));               // a picture in the hall
   g.add(hall);
-  for (const zc of [-0.09, 0.89]) g.add(noShadow(box(0.05, 2.2, 0.08, C.cream, x - 0.025, 0, zc)));
-  g.add(noShadow(box(0.05, 0.08, 1.06, C.cream, x - 0.025, 2.2, 0.4)));
+  for (const zc of [-0.09, 0.89]) g.add(sharp(noShadow(box(0.05, 2.2, 0.08, C.cream, x - 0.025, 0, zc))));
+  g.add(sharp(noShadow(box(0.05, 0.08, 1.06, C.cream, x - 0.025, 2.2, 0.4))));
   // panelling and rails, either side of the door (starts after the back wall's rail – no overlaps)
   for (const [z0, z1] of [[-2.79, -0.16], [0.96, 2.93]]) {   // (starts past the back window sill)
     g.add(noShadow(box(0.03, 0.9, z1 - z0, C.wainscot, x - 0.015, 0, (z0 + z1) / 2)));
@@ -416,7 +430,7 @@ function buildRightWall(fx) {
 function buildCeiling(fx) {
   const g = new THREE.Group();
   g.userData.cut = 'ceiling';
-  g.add(noShadow(box(8.4, 0.15, 6.4, 0xefe6d4, 0, 3.17, 0)));   // v16: 3 cm into the wall tops (no light line at the joints, OS-25: 1.2.1)
+  g.add(sharp(noShadow(box(8.4, 0.15, 6.4, 0xefe6d4, 0, 3.17, 0))));   // v16: 3 cm into the wall tops (no light line at the joints, OS-25: 1.2.1)
   g.add(noShadow(cyl(0.36, 0.36, 0.025, 20, C.cap, 0, 3.175, 0)));                  // ceiling rose
   // the overhead light: a large enclosed dome (glows when 💡 Overhead is on)
   g.add(noShadow(cyl(0.2, 0.2, 0.03, 16, mat(C.brass, { rough: 0.35, metal: 0.5 }), 0, 3.145, 0)));
@@ -808,8 +822,11 @@ function buildDesk(r, fx) {
       g.add(box(0.07, 0.02, 0.03, C.brass, px, dy + 0.085, front + 0.03));
     }
   }
+  // v16.1 (OS-36: 4.3): the middle drawer is a real drawer body under the top, and the modesty panel reaches
+  // up to the top – both set a few mm into the pedestals and the top (no gaps, no flush faces)
+  g.add(box(W - 0.954, 0.145, 0.6, C.wood, 0, H - 0.2, front - 0.3));
   g.add(box(W - 0.96, 0.13, 0.02, C.woodLight, 0, H - 0.2, front + 0.01));
-  g.add(box(W - 0.96, 0.45, 0.03, C.wood, 0, 0.2, -front + 0.02));
+  g.add(box(W - 0.954, H - 0.06 - 0.2 + 0.005, 0.03, C.wood, 0, 0.2, -front + 0.02));
   // desktop items
   const leather = box(1.1, 0.005, 0.5, C.green, 0, H, 0.08);
   leather.castShadow = false;
@@ -840,6 +857,7 @@ function buildDesk(r, fx) {
   const deskBooks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, flatShading: true }), 8);
   deskBooks.castShadow = deskBooks.receiveShadow = true;
   deskBooks.setColorAt(0, new THREE.Color());
+  deskBooks.userData.books = true;               // v16.1: things may lie on top of books (OS-38)
   g.add(deskBooks);
   fx.desk = { H, papers, ink, openBook, books: deskBooks };
   arrangeDesk(fx.desk, rng(77));
@@ -904,6 +922,7 @@ function arrangeDesk(d, rnd) {
     }
   }
   d.books.count = n;
+  d.books.boundingSphere = null;                  // (its new size, for the hiding and tapping tests)
   d.books.instanceMatrix.needsUpdate = true;
   if (d.books.instanceColor) d.books.instanceColor.needsUpdate = true;
   d.books.visible = n > 0;

@@ -9,7 +9,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from '../../vendor/three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from '../../vendor/three/addons/modifiers/SimplifyModifier.js';
 import { StyleSampler } from '../art/styles.js';
-import { ASSET_DEFS } from '../game/assetlib.js';
+import { makePicture } from '../scene/wallart.js';
+// v16.1: the list comes from lib/intake.json (written by make-assetlib.ps1 with assetlib.js), read from the
+// network – so this page shows the newest list even on a device where the game itself is stored offline.
+const ASSET_DEFS = await fetch('assets/models/lib/intake.json', { cache: 'no-store' }).then((r) => r.json());
 
 const LITE_TRIS = 3000, LOWPOLY_TRIS = 700;
 const TABLE_Y = 0.75;
@@ -101,7 +104,7 @@ lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); lamp.shadow.bias = 
 scene.add(lamp);
 
 // ---------------------------------------------------------------- state
-const state = { look: 'original', detail: 'full', light: 'day', refl: 'on' };
+const state = { look: 'clay', detail: 'full', light: 'day', refl: 'on' };
 const items = [];               // one per ASSET_DEFS entry
 const loader = new GLTFLoader();
 const simplifier = new SimplifyModifier();
@@ -150,8 +153,10 @@ function softMap(tex, px) {
 
 function plainMaterial(orig, look) {
   if (!orig.isMeshStandardMaterial || orig.transparent) return orig.clone(); // glass stays glass
+  if (orig.name === 'picture') return orig;                                   // v16.1: a coded picture in a frame stays sharp (as in the game)
   return new THREE.MeshStandardMaterial({
-    name: orig.name, color: orig.color.clone(), map: softMap(orig.map, look === 'lowpoly' ? 16 : 48),
+    // v16.1: the full color picture, exactly as the game uses it (dials, labels and faces readable – was blurred to 48 px)
+    name: orig.name, color: orig.color.clone(), map: orig.map,
     roughness: look === 'lowpoly' ? 0.85 : Math.max(0.45, orig.roughness ?? 0.6),
     metalness: Math.min(orig.metalness ?? 0, look === 'lowpoly' ? 0.2 : 0.5),
     flatShading: look === 'lowpoly', side: orig.side,
@@ -167,6 +172,7 @@ async function reduce(root, target) {
   const ratio = target / total;
   const meshes = []; root.traverse((o) => { if (o.isMesh) meshes.push(o); });
   for (const o of meshes) {
+    if (o.material && o.material.name === 'picture') continue;   // v16.1 (OS-38: 2.3.1): a coded picture is 2 triangles – never thinned
     const g = o.geometry, verts = g.attributes.position.count;
     o.geometry = await simplifier.modify(g, Math.floor(verts * (1 - ratio)));
     o.geometry.computeBoundingBox(); o.geometry.computeBoundingSphere();
@@ -201,8 +207,10 @@ async function loadItem(def, i) {
   base.traverse((o) => {
     if (!o.isMesh) return;
     o.castShadow = true; o.receiveShadow = true;
-    for (const m of [o.material].flat()) if (m.map) m.map.anisotropy = 8;
+    for (const m of [o.material].flat()) { if (m.map) m.map.anisotropy = 8; if (m.transparent) m.depthWrite = false; }
   });
+  // v16.1 (OS-36: 2.4.1.2): every frame shows one of the game's coded pictures (no more black faces)
+  if (def.role === 'frame') makePicture({ paintings: [] }, ['insects', 'stamps', 'photo'][ASSET_DEFS.filter((d) => d.role === 'frame').indexOf(def) % 3], base);
   base.updateMatrixWorld(true);
   const dims = new THREE.Box3().setFromObject(base).getSize(new THREE.Vector3());
   // file size: the model file plus every file it points to (bin + textures), asked from the server
@@ -361,26 +369,59 @@ function pick(e) {
 
 // ---------------------------------------------------------------- side list, verdicts
 const rowsEl = document.getElementById('rows');
-let verdicts = {};
-try { verdicts = JSON.parse(localStorage.getItem('os-intake-verdicts') || '{}'); } catch { verdicts = {}; }
-const saveVerdicts = () => { try { localStorage.setItem('os-intake-verdicts', JSON.stringify(verdicts)); } catch { /* private mode */ } };
+// (v16.1: a fresh verdict store – the ✓/✗ from the v16 check are done)
+let verdicts = {}, fixes = {};
+try { verdicts = JSON.parse(localStorage.getItem('os-intake-verdicts-v161') || '{}'); fixes = JSON.parse(localStorage.getItem('os-intake-rules-v161') || '{}'); } catch { verdicts = {}; fixes = {}; }
+const saveVerdicts = () => { try { localStorage.setItem('os-intake-verdicts-v161', JSON.stringify(verdicts)); localStorage.setItem('os-intake-rules-v161', JSON.stringify(fixes)); } catch { /* private mode */ } };
 let selected = -1;
 function select(i) { selected = i; updateRows(); }
 const fmtKB = (b) => (b ? (b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB') : '–');
 const cm = (m) => (m * 100).toFixed(m < 0.1 ? 1 : 0);
+// LOGIC / USE CASE in plain words (v16.1, OS-37: 3.1a) – JM corrects them in the box under each model
+const PLACE = { d: 'desk', t: 'tables / sideboard / trunk', y: 'sideboard', o: 'on top of books', g: 'globe (top, or the rim of its base)', s: 'shelves', m: 'mantel', k: 'bookcase tops', f: 'floor', w: 'wall', b: 'fruit bowl', h: 'beside the hearth', l: 'window sill', x: 'seats (chairs)' };
+const USE = { e: 'everyday – within reach', c: 'collectible – may be out of reach, on display' };
+const UPS = { any: 'any side up (upside down too)', base: 'on its base or its side – never upside down unless propped', upright: 'only standing upright', flat: 'lies flat – on its edge only if propped', faceup: 'face up or on its back – never face down', hang: 'wall only' };
+function logicText(d) {
+  if (d.role !== 'to') return d.role === 'bg' ? 'Furniture (background): fixed place, only nudged.' : 'Picture frame: a coded picture is drawn in.';
+  const sc = d.scale ? ' · size: ' + Object.entries(d.scale).map(([k, v]) => `${PLACE[k] || k} ${Math.round(v * 100)}%`).join(', ') : '';
+  return `${USE[d.use] || '–'}\nWhere: ${d.at.map((c) => PLACE[c] || c).join(', ')}\nWhich way up: ${UPS[d.up] || d.up || '–'}${d.support === 'full' ? ' · whole underside supported' : ''}${sc}${d.note ? '\nRule: ' + d.note : ''}`;
+}
+let filter = ASSET_DEFS.some((d) => d.check) ? 'check' : 'all';   // (opens on the models to check, if any)
+document.querySelectorAll('[data-grp="show"] button').forEach((b) => b.classList.toggle('on', b.dataset.v === filter));
+const shownDefs = () => ASSET_DEFS.map((d, i) => i).filter((i) => filter === 'all' || ASSET_DEFS[i].check);
 function buildRows() {
   rowsEl.innerHTML = '';
   ASSET_DEFS.forEach((def, i) => {
     const row = document.createElement('div');
     row.className = 'row'; row.dataset.i = i;
-    row.innerHTML = `<div class="t"><span class="n"></span><span class="v"><button class="keep" title="Keep">✓</button><button class="drop" title="Drop">✗</button></span></div><div class="m"></div>`;
+    row.innerHTML = `<div class="t"><span class="n"></span><span class="v"><button class="keep" title="Keep">✓</button><button class="drop" title="Drop">✗</button></span></div><div class="lg"></div><input class="fix" placeholder="Rule correction (optional)…"><div class="m"></div>`;
     row.querySelector('.n').textContent = def.word;
+    if (def.check) { const b = document.createElement('em'); b.className = 'badge ' + def.check; b.textContent = def.check === 'new' ? 'NEW piece' : 'FIXED'; row.querySelector('.n').append(' ', b); }
     row.querySelector('.n').title = def.name;
+    row.querySelector('.lg').textContent = logicText(def);
+    const fix = row.querySelector('.fix');
+    fix.value = fixes[def.id] || '';
+    fix.addEventListener('input', () => { fixes[def.id] = fix.value.trim() || undefined; saveVerdicts(); updateRows(); });
+    fix.addEventListener('click', (e) => e.stopPropagation());
+    if (def.role !== 'to') fix.style.display = 'none';
     row.addEventListener('click', (e) => { if (!e.target.closest('button')) focus(i); });
     row.querySelector('.keep').addEventListener('click', () => { verdicts[def.id] = verdicts[def.id] === 'keep' ? undefined : 'keep'; saveVerdicts(); updateRows(); });
     row.querySelector('.drop').addEventListener('click', () => { verdicts[def.id] = verdicts[def.id] === 'drop' ? undefined : 'drop'; saveVerdicts(); updateRows(); });
     rowsEl.appendChild(row);
   });
+}
+// v16.1: "To check" shows only the new pieces and the fixed models, packed together on the desk
+function layout() {
+  const list = shownDefs(), rows = Math.ceil(list.length / COLS);
+  items.forEach((it) => { if (it && it.holder) it.holder.visible = false; });
+  list.forEach((i, k) => {
+    const it = items[i]; if (!it || !it.holder) return;
+    it.holder.visible = true;
+    it.holder.position.x = ((k % COLS) - (COLS - 1) / 2) * GAP_X;
+    it.holder.position.z = (Math.floor(k / COLS) - (rows - 1) / 2) * GAP_Z;
+  });
+  rowsEl.querySelectorAll('.row').forEach((row) => { row.style.display = list.includes(+row.dataset.i) ? '' : 'none'; });
+  redraw();
 }
 function updateRows() {
   rowsEl.querySelectorAll('.row').forEach((row) => {
@@ -398,8 +439,14 @@ function updateRows() {
   });
   const keep = ASSET_DEFS.filter((d) => verdicts[d.id] === 'keep').map((d) => `${d.word} [${d.id.replace(/^ph-/, "")}]`);
   const drop = ASSET_DEFS.filter((d) => verdicts[d.id] === 'drop').map((d) => `${d.word} [${d.id.replace(/^ph-/, "")}]`);
-  document.getElementById('summary').value = `KEEP (${keep.length}): ${keep.join(', ') || '–'}\nDROP (${drop.length}): ${drop.join(', ') || '–'}`;
+  const rules = ASSET_DEFS.filter((d) => fixes[d.id]).map((d) => `${d.word} [${d.id.replace(/^ph-/, '')}]: ${fixes[d.id]}`);
+  document.getElementById('summary').value = `KEEP (${keep.length}): ${keep.join(', ') || '–'}\nDROP (${drop.length}): ${drop.join(', ') || '–'}\nRULE CORRECTIONS (${rules.length}): ${rules.join(' | ') || '–'}`;
 }
+document.querySelector('.grp[data-grp=show]').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  e.currentTarget.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  filter = b.dataset.v; layout(); home();
+}, true);
 document.getElementById('copy').addEventListener('click', async () => {
   const ta = document.getElementById('summary');
   try { await navigator.clipboard.writeText(ta.value); setStatus('Verdicts copied'); } catch { ta.select(); document.execCommand('copy'); setStatus('Verdicts copied'); }
@@ -463,6 +510,7 @@ await Promise.all(ASSET_DEFS.map((def, i) => loadItem(def, i)
   .catch((err) => { items[i] = { error: String(err && err.message || err) }; console.error(def.file, err); })
   .finally(() => { done++; setStatus(`Loading ${done}/${ASSET_DEFS.length}…`); })));
 await showAll();
+layout(); home();
 setBusy(false);
 window.__intake = { items, state, renderer, scene, camera }; // for testing
 console.log('Asset Intake ready:', ok().length, 'models');

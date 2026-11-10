@@ -76,7 +76,7 @@ select option { color: #1b1f2a; }
 
 /* ---------- test tools: pills (hover peeks, click pins) ---------- */
 #tools { position: fixed; top: calc(var(--gap) + 58px); left: max(12px, env(safe-area-inset-left)); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.tool { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 3px; border-radius: 14px; background: var(--panel); border: 1px dashed rgba(226, 179, 74, 0.55); }
+.tool { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 3px; border-radius: 14px; background: var(--panel); border: 1px solid rgba(226, 179, 74, 0.4); }   /* v16.1: player tools now (was dashed = test-only) */
 .tool .pill { min-height: 34px; font-size: 12px; font-weight: 800; letter-spacing: 0.05em; color: var(--gold); white-space: nowrap; }
 .tool .pill span { color: var(--ink); font-weight: 700; letter-spacing: 0; }
 .tool .body { display: none; align-items: center; gap: 6px; padding: 0 4px 4px; }
@@ -126,6 +126,14 @@ select option { color: #1b1f2a; }
 .restart { width: 100%; min-height: 48px; font-size: 18px; border-radius: 12px; background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.18); }
 /* along the top or bottom: the list becomes two rows of three */
 #findpanel.edge #findlist { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* v16.1 (OS-36): on a laptop screen the side list shows all 6 rows – compact rows when the window is short */
+@media (max-height: 860px) {
+  #findpanel.side #findlist { gap: 6px; }
+  #findpanel.side #findlist li { padding: 5px 8px; gap: 8px; }
+  #findpanel.side #findlist .ico { flex-basis: 28px; height: 28px; }
+  #findpanel.side #findlist .nm { font-size: 15px; }
+  #findpanel.side .fp-foot { margin-top: 8px; }
+}
 
 #findpanel.edge #findlist li { padding: 6px 8px; gap: 8px; }
 #findpanel.edge #findlist .ico { flex-basis: 30px; height: 30px; }

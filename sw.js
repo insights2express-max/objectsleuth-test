@@ -3,7 +3,7 @@
 // v16 (OS-33: 3.2): the imported models live in their OWN store ("objectsleuth-models"), which is kept
 // across versions – an update never downloads the model library again. Models are stored the first time
 // a round uses them, and the game fills in the rest in the background (main.js fillLibrary).
-const VERSION = 'v16'; // = APP_VERSION in js/main.js (one number per published build)
+const VERSION = 'v16.1'; // = APP_VERSION in js/main.js (one number per published build)
 const CACHE = 'objectsleuth-' + VERSION;
 const MODELS = 'objectsleuth-models';
 
@@ -26,6 +26,7 @@ const FILES = [
   './js/scene/sun.js',
   './js/scene/softshadows.js',
   './js/game/targets.js',
+  './js/game/fastray.js',
   './js/game/objects.js',
   './js/game/library.js',
   './js/game/assetlib.js',
