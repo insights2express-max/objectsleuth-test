@@ -122,3 +122,39 @@ function fastRaycast(raycaster, intersects) {
     intersects.push({ distance, point: _p.clone(), object: this, faceIndex: tri, face: { a: tri * 3, b: tri * 3 + 1, c: tri * 3 + 2, normal: _n.clone(), materialIndex: 0 }, uv: null, barycoord: new THREE.Vector3(1 - u - v, u, v) });
   }
 }
+
+// v16.2 (speed): the BOOKS are one instanced piece – hundreds of copies along the whole back wall, so nearly every
+// ray near it tested every book (≈ 60 % of all hiding time). Each book's own bounding ball is kept (rebuilt whenever
+// the hiding search starts – the desk books move each round), and a ray only tests the books it passes close to.
+// Same results as three.js's InstancedMesh test.
+const _m4 = new THREE.Matrix4(), _sph = new THREE.Sphere(), _one = new THREE.Mesh(), _hits = [];
+export function accelerateInstanced(mesh) {
+  const g = mesh.geometry;
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  mesh.updateMatrixWorld(true);
+  const n = mesh.count, S = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    mesh.getMatrixAt(i, _m4);
+    _m4.premultiply(mesh.matrixWorld);
+    _sph.copy(g.boundingSphere).applyMatrix4(_m4);
+    S[i * 4] = _sph.center.x; S[i * 4 + 1] = _sph.center.y; S[i * 4 + 2] = _sph.center.z; S[i * 4 + 3] = _sph.radius;
+  }
+  mesh.userData.instSpheres = S;
+  if (!mesh.userData.fastInst) { mesh.userData.fastInst = true; mesh.raycast = instancedRaycast; }
+}
+function instancedRaycast(raycaster, intersects) {
+  const S = this.userData.instSpheres;
+  if (!S || this.material === undefined) return;
+  const o = raycaster.ray.origin, d = raycaster.ray.direction, far = raycaster.far;
+  _one.geometry = this.geometry; _one.material = this.material;
+  for (let i = 0, n = Math.min(this.count, S.length / 4); i < n; i++) {
+    const k = i * 4, vx = S[k] - o.x, vy = S[k + 1] - o.y, vz = S[k + 2] - o.z, r = S[k + 3];
+    const along = vx * d.x + vy * d.y + vz * d.z;
+    if (along < -r || along > far + r || vx * vx + vy * vy + vz * vz - along * along > r * r) continue;
+    this.getMatrixAt(i, _m4);
+    _one.matrixWorld.multiplyMatrices(this.matrixWorld, _m4);
+    _hits.length = 0;
+    _one.raycast(raycaster, _hits);
+    for (const h of _hits) { h.instanceId = i; h.object = this; intersects.push(h); }
+  }
+}

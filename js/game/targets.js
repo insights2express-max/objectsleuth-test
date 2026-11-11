@@ -20,7 +20,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { mergeGeometries } from '../../vendor/three/addons/utils/BufferGeometryUtils.js';
 import { drawOutline } from './objects.js';
 import { shapesOf, silhouetteOfObject, silhouetteOfShapes } from './library.js';
-import { accelerate } from './fastray.js';
+import { accelerate, accelerateInstanced } from './fastray.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 // v16.1 (OS-36): the figurative forms (woven / painted / embossed) are PARKED – figurative: 0 on every level.
@@ -41,7 +41,7 @@ const CONCEALED = new Set(['ph-ornate_mirror_01', 'ph-dartboard', 'ph-kite_shiel
 const BRACKET = { 'ph-Lantern_01': 0.035 };                        // hangs from an arm (stand-off from the wall)
 const NAIL = new Set(['ph-old_gas_mask']);              // (v16.2, OS-40: 1.1 – the clipboard is never on a wall)
 // v16.2 PHYSICS (OS-41: 1.1)
-const TIP = 0.25;         // a rest pose is stable when its centre of mass sits inside its footprint by ≥ 25 % of its height (tips at ~14°)
+const TIP = 0.17;         // a rest pose is stable when its centre of mass sits inside its footprint by ≥ 17 % of its height (tips at ~10°)
 const HEAVY = 0.22;       // longest side (m) from which a thing counts as heavy: ~100 % of its footprint must be supported
 // 62 directions, evenly spread over a sphere (collision lines follow the model's real shape – was 14)
 const SPHERE = (() => { const out = [], n = 62, g = Math.PI * (3 - Math.sqrt(5)); for (let i = 0; i < n; i++) { const y = 1 - (2 * (i + 0.5)) / n, r = Math.sqrt(1 - y * y); out.push(new THREE.Vector3(Math.cos(g * i) * r, y, Math.sin(g * i) * r)); } return out; })();
@@ -184,7 +184,7 @@ export class Targets {
       for (let p = o.parent; p && p !== this.root; p = p.parent) if (!p.visible) return;
       const m = o.material;
       if (m.transparent || m.colorWrite === false || m.isMeshBasicMaterial) return;
-      accelerate(o);                                   // (fast rays – the rounded Clay boxes have 300 triangles each)
+      if (o.isInstancedMesh) accelerateInstanced(o); else accelerate(o);   // (fast rays – the rounded Clay boxes have 300 triangles each; v16.2: the books too)
       if (o.userData.open === undefined) o.userData.open = m.side === THREE.DoubleSide;   // an open, two-sided shape (a lamp shade): never a "lid"
       list.push(o);
     });
@@ -275,7 +275,7 @@ export class Targets {
     const floor = lo + 0.006;
     const pts = [c0, ...H.map((p) => { const q = p.clone().lerp(c0, 0.05); q.y = Math.max(q.y, floor); return q; })];
     if (this.inside(pts[0], solids)) return false;
-    const all = solids;
+
     let rad = 0; for (const p of H) rad = Math.max(rad, p.distanceTo(c0));
     solids = this.nearSolids(solids, c0, rad + 0.02);                 // (every line below stays within its own reach)
     const d = new THREE.Vector3();
@@ -283,12 +283,12 @@ export class Targets {
     for (let i = 1; i < pts.length; i++) if (line(pts[0], pts[i])) return false;
     const big = Math.max(...it.box.getSize(new THREE.Vector3()).toArray()) * new THREE.Vector3().setFromMatrixScale(m).x;
     if (!onWall && big > 0.12 && hi - lo > 0.03) {          // (not for things hung on a wall: the wall is checked behind them – placeWall)
-      // upright lines over its lower body's outline (a plant: its pot), every ≤ 3.5 cm (at most 7 × 7)
+      // upright lines over its lower body's outline (a plant: its pot), every ≤ 4 cm (at most 6 × 6)
       const low = hull2(H.filter((p) => p.y < lo + 0.5 * (hi - lo)).map((p) => [p.x, p.z]));
       if (low.length >= 3) {
         let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
         for (const [x, z] of low) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
-        const nx = Math.min(6, Math.max(2, Math.ceil((x1 - x0) / 0.035))), nz = Math.min(6, Math.max(2, Math.ceil((z1 - z0) / 0.035)));
+        const nx = Math.min(5, Math.max(2, Math.ceil((x1 - x0) / 0.04))), nz = Math.min(5, Math.max(2, Math.ceil((z1 - z0) / 0.04)));
         const down = new THREE.Vector3(0, -1, 0);
         for (let a = 0; a <= nx; a++) for (let b = 0; b <= nz; b++) {
           const x = x0 + (x1 - x0) * a / nx, z = z0 + (z1 - z0) * b / nz;
@@ -296,15 +296,15 @@ export class Targets {
           if (this.cast(new THREE.Vector3(x, hi - 0.004, z), down, hi - lo - 0.012, solids).length) return false;
         }
       }
-      // level lines from its middle axis to its outline, 16 ways round, at 30 % and 70 % of its height
+      // level lines from its middle axis to its outline, 12 ways round, at 30 % and 70 % of its height
       for (const k of [0.3, 0.7]) {
         const y = lo + k * (hi - lo), band = H.filter((p) => Math.abs(p.y - y) < 0.3 * (hi - lo));
         if (band.length < 3) continue;
         const cx = band.reduce((s, p) => s + p.x, 0) / band.length, cz = band.reduce((s, p) => s + p.z, 0) / band.length;
         const o = new THREE.Vector3(cx, y, cz);
-        if (this.inside(o, all)) return false;
-        for (let a = 0; a < 16; a++) {
-          const dir = new THREE.Vector3(Math.cos(a * Math.PI / 8), 0, Math.sin(a * Math.PI / 8));
+        // (no extra "inside" test here: placing, every piece is two-sided, so a line from inside one meets its walls)
+        for (let a = 0; a < 12; a++) {
+          const dir = new THREE.Vector3(Math.cos(a * Math.PI / 6), 0, Math.sin(a * Math.PI / 6));
           let r = 0; for (const p of band) r = Math.max(r, (p.x - cx) * dir.x + (p.z - cz) * dir.z);
           if (r > 0.004 && this.cast(o, dir, r * 0.95, solids).length) return false;
         }
@@ -314,19 +314,15 @@ export class Targets {
   }
   // ---------------------------------------------------------------- v16.2 PHYSICS (OS-41: 1.1)
   // REST POSE: the centre of mass (the middle of its surface points) must sit over its footprint (the outline of the
-  // points it stands on), with a margin of ≥ 25 % of its height – a saw never balances on its handle with the blade
-  // up, a cassette player never stands on its thin edge. When the model's own pose fails, it settles the way a real
-  // one would: the stable pose (allowed by the catalogue's "up" rule) with the lowest centre of mass.
+  // points it stands on), with a margin of ≥ 17 % of its height – a saw never balances on its handle with the blade
+  // up, a cassette player never stands on its thin edge. When the model's own pose fails, it SETTLES the way a real
+  // one would: tipped over its footprint's edge until it rests stably (allowed by the catalogue's "up" rule; upright-only and round things keep their pose).
   rest(it) {
     const g = it.group, P = this.restPts(it);
     if (g.userData.rest) return g.userData.rest;
-    const up = it.def.up, H = Math.PI / 2;
-    const turns = [[0, 0]];
-    if (up === 'base' || up === 'any') turns.push([H, 0], [-H, 0], [0, H], [0, -H]);
-    if (up === 'any') turns.push([Math.PI, 0]);
-    const v = new THREE.Vector3();
-    const tries = turns.map(([rx, rz], i) => {
-      const R = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, 0, rz));
+    const up = it.def.up, H = Math.PI / 2, v = new THREE.Vector3(), UPV = new THREE.Vector3(0, 1, 0);
+    // one pose: its footprint (points within 2 % of its height of the lowest), centre of mass, and how safely it stands
+    const measure = (R) => {
       let minY = Infinity, maxY = -Infinity; const com = new THREE.Vector3(); const n = P.length / 3;
       const W = new Float32Array(P.length);
       for (let k = 0; k < P.length; k += 3) {
@@ -334,14 +330,63 @@ export class Targets {
         minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y); com.add(v);
       }
       com.multiplyScalar(1 / n);
-      const tol = Math.max(0.002, 0.02 * (maxY - minY)), foot = [];
+      const tol = Math.max(0.003, 0.04 * (maxY - minY)), foot = [];   // (scanned feet are never quite level)
       for (let k = 0; k < W.length; k += 3) if (W[k + 1] < minY + tol) foot.push([W[k], W[k + 2]]);
       const h = hull2(foot), margin = insideBy(h, com.x, com.z), lift = com.y - minY;
-      return { i, R, minY, maxY, com, foot, hull: h, margin, lift, stable: margin > 0 && margin >= TIP * lift };
-    });
-    const ok = tries.filter((t) => t.stable).sort((a, b) => a.lift - b.lift);
-    // (round things – an apple, a ball – have no footprint in any pose: they keep the model's own)
-    const best = tries[0].stable || !ok.length ? tries[0] : ok[0];
+      return { R, W, minY, maxY, com, foot, hull: h, margin, lift, tol, stable: margin > 0 && margin >= TIP * lift };
+    };
+    // SETTLE like a real one: while it would tip, roll it over the edge of its footprint nearest to (or beyond) its
+    // centre of mass until another point touches the table – a saw ends on its handle and the tip of its blade
+    const settle = (R0) => {
+      let s = measure(R0.clone());
+      for (let k = 0; k < 14 && !s.stable; k++) {
+        const c = [s.com.x, s.com.z], h = s.hull;
+        let a, t;                                                     // pivot point (on the edge) and tipping direction
+        if (h.length >= 2) {
+          let bestD = Infinity;
+          for (let i = 0; i < h.length; i++) {
+            const p = h[i], q = h[(i + 1) % h.length], ex = q[0] - p[0], ez = q[1] - p[1], L = Math.hypot(ex, ez) || 1e-9;
+            if (h.length === 2 && i === 1) break;
+            const nx = ez / L, nz = -ex / L;                            // outward normal (counter-clockwise hull)
+            const d = -((c[0] - p[0]) * nx + (c[1] - p[1]) * nz);     // how far inside (negative = beyond this edge)
+            if (d < bestD) { bestD = d; a = p; t = [nx, nz]; }
+          }
+          if (h.length === 2) {                                       // a line: tip to the side the centre of mass is on
+            const p = h[0], q = h[1], ex = q[0] - p[0], ez = q[1] - p[1], L = Math.hypot(ex, ez) || 1e-9;
+            let nx = ez / L, nz = -ex / L;
+            if ((c[0] - p[0]) * nx + (c[1] - p[1]) * nz < 0) { nx = -nx; nz = -nz; }
+            a = p; t = [nx, nz];
+          }
+        } else {
+          a = h[0] || [s.com.x, s.com.z];
+          const dx = c[0] - a[0], dz = c[1] - a[1], L = Math.hypot(dx, dz);
+          t = L > 1e-6 ? [dx / L, dz / L] : [1, 0];
+        }
+        // the smallest turn about that edge that brings another point down to the table
+        let th = H;
+        for (let i = 0; i < s.W.length; i += 3) {
+          const w = (s.W[i] - a[0]) * t[0] + (s.W[i + 2] - a[1]) * t[1], hh = s.W[i + 1] - s.minY;
+          if (w > 0.002 && hh > s.tol * 0.5) th = Math.min(th, Math.atan2(hh, w));
+        }
+        th = Math.max(th, 0.01);
+        const axis = new THREE.Vector3().crossVectors(UPV, new THREE.Vector3(t[0], 0, t[1])).normalize();
+        s = measure(new THREE.Matrix4().makeRotationAxis(axis, th).multiply(s.R));
+      }
+      return s;
+    };
+    const legal = (s) => up === 'any' || new THREE.Vector3(0, 1, 0).transformDirection(s.R).y > -0.3;   // ('base': never upside down)
+    let best = measure(new THREE.Matrix4());
+    if (!best.stable && (up === 'base' || up === 'any')) {
+      // settled from its own pose and from lying on each side: the lowest stable result wins – where a real one, put
+      // down or dropped, ends up (a saw lies flat, it doesn't balance on its teeth)
+      const starts = [[0, 0], [H, 0], [-H, 0], [0, H], [0, -H]];
+      if (up === 'any') starts.push([Math.PI, 0]);
+      const ok = starts.map(([rx, rz]) => settle(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, 0, rz)))).filter((s) => s.stable && legal(s));
+      if (ok.length) best = ok.sort((a, b) => a.lift - b.lift)[0];
+    }
+    // (round things – an apple, a ball – and upright-only things keep the model's own pose)
+    best.i = best.R.equals(new THREE.Matrix4()) ? 0 : 1;
+    best.W = null;
     // footprint sample (≤ 24 points, spread out) for the support test
     const f = best.foot, pick = [];
     const stride = Math.max(1, Math.floor(f.length / 8));
@@ -353,7 +398,7 @@ export class Targets {
     best.pick = pick;
     best.size = it.box.clone().applyMatrix4(best.R).getSize(new THREE.Vector3());
     best.changed = best.i !== 0;
-    if (best.changed && !g.userData.restLogged) { g.userData.restLogged = true; console.info('ObjectSleuth: settles in another pose', it.def.id, ['as modelled', 'tipped forward', 'tipped back', 'on its left side', 'on its right side', 'upside down'][best.i]); }
+    if (best.changed && !g.userData.restLogged) { g.userData.restLogged = true; const u = new THREE.Vector3(0, 1, 0).transformDirection(best.R); console.info('ObjectSleuth: settles in another pose', it.def.id, `its top now points ${u.y > 0.7 ? 'up (tilted)' : u.y < -0.7 ? 'down' : 'sideways'} – ${Math.round(Math.acos(Math.max(-1, Math.min(1, u.y))) * 180 / Math.PI)}° from upright`); }
     g.userData.rest = best;
     return best;
   }
