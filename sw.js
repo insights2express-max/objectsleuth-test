@@ -4,6 +4,7 @@
 // across versions – an update never downloads the model library again. Models are stored the first time
 // a round uses them, and the game fills in the rest in the background (main.js fillLibrary).
 const VERSION = 'v16.2'; // = APP_VERSION in js/main.js (one number per published build)
+// build mark (any change to this file makes devices fetch every file again): v16.2 update 2026-11-11 b
 const CACHE = 'objectsleuth-' + VERSION;
 const MODELS = 'objectsleuth-models';
 
