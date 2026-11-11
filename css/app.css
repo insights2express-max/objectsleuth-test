@@ -69,10 +69,20 @@ select option { color: #1b1f2a; }
 
 #hintbar button { font-weight: 700; }
 
-#info {
-  position: fixed; left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom));
+#info {   /* v16.2: beside the compass (lower left), never under it */
+  position: fixed; left: calc(max(12px, env(safe-area-inset-left)) + 92px); bottom: max(12px, env(safe-area-inset-bottom));
   padding: 6px 10px; border-radius: 10px; background: var(--panel); color: var(--muted); font-size: 12px; pointer-events: none;
 }
+/* ---------- v16.2 COMPASS (OS-41: 4.2): lower left; tap a letter or drag round to turn (Stage / Walk-in) ---------- */
+#compass { position: fixed; left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); width: 84px; height: 84px;
+  border-radius: 50%; background: var(--panel); touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; z-index: 6; }
+#compass.fixed { cursor: default; opacity: 0.8; }
+#compass svg { width: 100%; height: 100%; display: block; }
+#compass .c-ring { fill: none; stroke: rgba(226, 179, 74, 0.55); stroke-width: 2; }
+#compass .c-l { fill: #e9e4d8; font: 800 15px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; cursor: pointer; }
+#compass .c-n { fill: #ff7a5c; }
+#compass .c-ticks line { stroke: rgba(255, 255, 255, 0.45); stroke-width: 1.5; }
+#compass .c-mark { fill: var(--gold); }
 
 /* ---------- test tools: pills (hover peeks, click pins) ---------- */
 #tools { position: fixed; top: calc(var(--gap) + 58px); left: max(12px, env(safe-area-inset-left)); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -124,6 +134,9 @@ select option { color: #1b1f2a; }
 .fp-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .fp-foot select { width: 100%; }
 .restart { width: 100%; min-height: 48px; font-size: 18px; border-radius: 12px; background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.18); }
+.fp-row { display: flex; gap: 8px; }            /* v16.2: Restart · ↶ Undo (OS-41: 3.1) */
+.fp-row .restart { flex: 1; width: auto; min-width: 0; }
+.restart.undo:disabled { opacity: 0.4; }
 /* along the top or bottom: the list becomes two rows of three */
 #findpanel.edge #findlist { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 /* v16.1 (OS-36): on a laptop screen the side list shows all 6 rows – compact rows when the window is short */

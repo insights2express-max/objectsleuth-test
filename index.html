@@ -85,7 +85,10 @@
       <div class="fp-bar"><i id="fp-bar"></i></div>
       <ul id="findlist"></ul>
       <div class="fp-foot">
-        <button type="button" id="newround" class="restart" title="Hide the objects somewhere new">Restart Scene</button>
+        <div class="fp-row">
+          <button type="button" id="newround" class="restart" title="Restart Scene: hide the objects somewhere new">Restart</button>
+          <button type="button" id="undo" class="restart undo" title="Undo: put the last found object back (its points too) – the round then doesn't count for Personal Bests" disabled>↶ Undo</button>
+        </div>
       </div>
     </div>
     <div class="fp-grip left" id="fp-grip-l" title="Drag to resize"></div>
@@ -178,6 +181,21 @@
         <button type="button" id="set-close" class="big">Close</button>
       </section>
     </div>
+  </div>
+
+  <!-- v16.2 COMPASS (OS-41: 4.2): the way the view faces, by the Scene's real compass; tap a letter or drag round to turn -->
+  <div id="compass" role="slider" aria-label="Compass: tap a direction or drag round to turn" tabindex="0">
+    <svg viewBox="-50 -50 100 100" aria-hidden="true">
+      <circle r="47" class="c-ring"></circle>
+      <g id="c-rose">
+        <g class="c-ticks"></g>
+        <text class="c-l c-n" x="0" y="-31" data-b="0">N</text>
+        <text class="c-l" x="31" y="0" data-b="90">E</text>
+        <text class="c-l" x="0" y="31" data-b="180">S</text>
+        <text class="c-l" x="-31" y="0" data-b="270">W</text>
+      </g>
+      <path d="M0,-46 L5,-38 L-5,-38 Z" class="c-mark"></path>
+    </svg>
   </div>
 
   <div id="info"><span id="build"></span> · <span id="fps">– fps</span> · <span id="offline">…</span></div>

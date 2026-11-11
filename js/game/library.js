@@ -104,6 +104,9 @@ export class Library {
         // (one light bulb: +107 draws). Plain see-through glass looks the same at this size and costs nothing.
         if (m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = Math.min(m.opacity, 0.35); }
         if (m.transparent) m.depthWrite = false;                // v16.1: see-through glass (clock faces, lantern) never hides what is behind it
+        // v16.2 (OS-40: 1.1): the Bake page drops each file's glow PICTURE but some files kept its full-white glow
+        // STRENGTH – the whole metal detector / pipe lamp then shone plain white. Imported things never glow.
+        if (m.emissive && !m.emissiveMap) m.emissive.setRGB(0, 0, 0);
       }
       meshes.push(o);
     });
@@ -138,6 +141,24 @@ export class Library {
     if (s && s.name !== this.look) s.set(this.look);
     else if (s && !s.applied) s.set(this.look);
     if (s) s.applied = true;
+    this.fill(g);
+  }
+  // v16.2 (OS-40: 1.1): soft light reflected from the room (as on the Intake page, which JM approved). Without it the
+  // dark painted back of the alarm clock and dark metal parts showed as flat black. One small picture made once
+  // (main.js); its strength follows the room's daylight (setFill). Cost: one extra picture read on imported objects.
+  fill(g) {
+    if (!this.env) return;
+    for (const o of g.userData.meshes) for (const m of [o.material].flat()) {
+      if (!m.isMeshStandardMaterial || m.transparent) continue;
+      if (m.envMap !== this.env) { m.envMap = this.env; m.needsUpdate = true; }
+      m.envMapIntensity = this.envK;
+    }
+  }
+  setFill(k) {
+    if (Math.abs(k - (this.envK ?? -1)) < 0.02) return false;
+    this.envK = k;
+    for (const g of this.groups.values()) this.fill(g);
+    return true;
   }
 
   // free the models not used for a while (they are still on the device; loading again is quick)

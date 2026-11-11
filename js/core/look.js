@@ -129,6 +129,14 @@ export class LookControls {
     this.anim = null; this.vel.x = this.vel.y = 0;
     this.fly = { t: 0, y0: this.yaw, p0: this.pitch, z0: this.zoom, y1, p1: Math.asin(clamp(d.y, -1, 1)), z1: clamp(zoom, this.minZoom, this.maxZoom) };
   }
+  // v16.2 COMPASS / arrow keys: turn smoothly to a heading (the short way round; Stage stays within its limits)
+  turnTo(yaw, pitch = this.pitch) {
+    let y1 = this.yaw + wrap(yaw - this.yaw);
+    if (this.yawLim) y1 = clamp(y1, this.yawLim[0], this.yawLim[1]);
+    const f = this.fly;
+    this.anim = null; this.vel.x = this.vel.y = 0;
+    this.fly = { t: 0, y0: this.yaw, p0: this.pitch, z0: this.zoom, y1, p1: clamp(pitch, this.pitchLim[0], this.pitchLim[1]), z1: f ? f.z1 : this.zoom, dur: 0.45 };
+  }
   // WALK-IN: step to a new spot (eye height stays the same), 0.8 s
   walkTo(p) { this.walk = { t: 0, from: this.pos.clone(), to: new THREE.Vector3(p.x, this.pos.y, p.z) }; }
   // pixels per metre on screen, at a point (things further away look smaller)
@@ -140,6 +148,12 @@ export class LookControls {
   }
 
   update(dt) {
+    if (this.keys && (this.keys.x || this.keys.y)) {   // v16.2: desktop arrow keys held down – turn 90°/s, tilt 45°/s
+      this.fly = null;
+      this.yaw += this.keys.x * dt * Math.PI / 2;
+      this.pitch += this.keys.y * dt * Math.PI / 4;
+      this.apply();
+    }
     if (this.walk) {
       const w = this.walk;
       w.t = Math.min(1, w.t + dt / 0.8);
@@ -150,7 +164,7 @@ export class LookControls {
     }
     if (this.fly) {
       const f = this.fly;
-      f.t = Math.min(1, f.t + dt / 0.7);
+      f.t = Math.min(1, f.t + dt / (f.dur || 0.7));
       const e = f.t * f.t * (3 - 2 * f.t);
       this.yaw = f.y0 + (f.y1 - f.y0) * e;
       this.pitch = f.p0 + (f.p1 - f.p0) * e;
@@ -171,7 +185,7 @@ export class LookControls {
       this.vel.x *= decay; this.vel.y *= decay;
     }
   }
-  moving() { return !!(this.anim || this.fly || this.walk); }
+  moving() { return !!(this.anim || this.fly || this.walk || (this.keys && (this.keys.x || this.keys.y))); }
 
   // ---------- pointer handling (same feel as the Diorama view) ----------
   down(e) {

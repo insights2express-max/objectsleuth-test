@@ -99,13 +99,14 @@ export class Session {
     });
     const limit = opts.format === 'countdown' ? (opts.minutes === 'untimed' ? 0 : (opts.minutes === 'custom' ? opts.custom : opts.minutes) * 60) : 0;
     this.round = {
-      opts, targets, limit, score: 0, found: [], revealed: [], ended: null,
+      opts, targets, limit, score: 0, found: [], revealed: [], ended: null, undos: 0,
       elapsed: resume ? resume.elapsed : 0, startedAt: performance.now(), paused: false,
     };
     if (resume) {
       this.round.score = resume.score;
-      this.round.found = resume.found.slice();
+      this.round.found = resume.found.slice();     // (in the order found = the Undo history)
       this.round.revealed = resume.revealed.slice();
+      this.round.undos = resume.undos || 0;
     }
     this.hideEnd();
     this.updateHud();
@@ -123,6 +124,25 @@ export class Session {
     this.updateHud();
     this.save();
   }
+
+  // UNDO ↶ (v16.2, OS-41: 3.1–3.2): the last found object (found, not revealed) goes back and its points are taken
+  // back; repeatable (the found list is the history). A round with an Undo no longer counts for Personal Bests.
+  // unfind(id) puts the object back in the room (main.js → targets.unfind); returns false if it couldn't.
+  undo(unfind) {
+    const r = this.round;
+    if (!r || r.ended || !r.found.length) return false;
+    const id = r.found[r.found.length - 1];
+    if (!unfind(id)) return false;
+    r.found.pop();
+    const pts = this.points();
+    r.score = Math.max(0, r.score - pts);
+    r.undos++;
+    this.flash(`−${pts}`);
+    this.updateHud();
+    this.save();
+    return true;
+  }
+  canUndo() { const r = this.round; return !!(r && !r.ended && r.found.length); }
 
   // once a second (from the main loop's meter)
   tick() {
@@ -143,7 +163,7 @@ export class Session {
     const key = this.pbKey(r.opts), old = this.pbs[key];
     const L = this.game.lighting();
     let best = false;
-    if (why === 'complete' && (!old || r.score > old.score || (r.opts.format === 'pb' && r.elapsed < old.time))) {
+    if (why === 'complete' && !r.undos && (!old || r.score > old.score || (r.opts.format === 'pb' && r.elapsed < old.time))) {
       this.pbs[key] = { score: Math.max(r.score, old ? old.score : 0), time: Math.min(r.elapsed, old && old.time ? old.time : Infinity),
         date: new Date().toISOString().slice(0, 10), light: L.preset, hours: L.hours, view: this.game.view() };
       store.set('pbs', this.pbs);
@@ -159,7 +179,7 @@ export class Session {
   save() {
     const r = this.round;
     if (!r) return;
-    store.set('round', { opts: r.opts, score: r.score, found: r.found, revealed: r.revealed, elapsed: this.elapsed(), ended: r.ended, avoid: r.opts.avoid || [] });
+    store.set('round', { opts: r.opts, score: r.score, found: r.found, revealed: r.revealed, undos: r.undos || 0, elapsed: this.elapsed(), ended: r.ended, avoid: r.opts.avoid || [] });
   }
   saved() { const s = store.get('round', null); return s && !s.ended && s.opts && s.opts.seed !== undefined ? s : null; }
 
@@ -181,7 +201,9 @@ export class Session {
     const t = r.limit ? this.left() : this.elapsed();
     $('hud-time').textContent = (r.limit ? '⏳ ' : '⏱️ ') + fmtTime(t);
     $('hud-time').classList.toggle('low', !!r.limit && t < 30 && !r.ended);
-    $('hud-mode').textContent = `${FORMATS[r.opts.format]}${r.opts.format === 'countdown' ? ' · ' + (r.limit ? fmtTime(r.limit) : 'Untimed') : ''} · ${PRESENT[r.opts.presentation]}`;
+    $('hud-mode').textContent = `${FORMATS[r.opts.format]}${r.opts.format === 'countdown' ? ' · ' + (r.limit ? fmtTime(r.limit) : 'Untimed') : ''} · ${PRESENT[r.opts.presentation]}` + (r.undos ? ' · ↶ no Personal Best' : '');
+    const u = $('undo');
+    if (u) u.disabled = !this.canUndo();
   }
   flash(text) {
     const f = $('hud-flash');
@@ -195,6 +217,7 @@ export class Session {
       `Found <b>${r.found.length}</b> · revealed <b>${r.revealed.length}</b> · of ${all}`,
       `Time <b>${fmtTime(r.elapsed)}</b> · ${this.game.levels[r.opts.chal].label} · ${PRESENT[r.opts.presentation]}`,
     ];
+    if (r.undos) lines.push(`↶ Undo used (${r.undos}×) – this round doesn't count for Personal Bests`);
     if (best) lines.push('🏆 <b>New Personal Best!</b>');
     else if (old) lines.push(`Personal Best: ${old.score}` + (old.time && isFinite(old.time) ? ` · ${fmtTime(old.time)}` : ''));
     $('end-body').innerHTML = lines.map((l) => `<p>${l}</p>`).join('');

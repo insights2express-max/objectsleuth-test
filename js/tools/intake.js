@@ -370,9 +370,10 @@ function pick(e) {
 // ---------------------------------------------------------------- side list, verdicts
 const rowsEl = document.getElementById('rows');
 // (v16.1: a fresh verdict store – the ✓/✗ from the v16 check are done)
-let verdicts = {}, fixes = {};
+let verdicts = {}, fixes = {}, sizes = {};   // (v16.2: + SIZE RANGE corrections)
 try { verdicts = JSON.parse(localStorage.getItem('os-intake-verdicts-v161') || '{}'); fixes = JSON.parse(localStorage.getItem('os-intake-rules-v161') || '{}'); } catch { verdicts = {}; fixes = {}; }
-const saveVerdicts = () => { try { localStorage.setItem('os-intake-verdicts-v161', JSON.stringify(verdicts)); localStorage.setItem('os-intake-rules-v161', JSON.stringify(fixes)); } catch { /* private mode */ } };
+try { sizes = JSON.parse(localStorage.getItem('os-intake-sizes-v162') || '{}'); } catch { sizes = {}; }
+const saveVerdicts = () => { try { localStorage.setItem('os-intake-verdicts-v161', JSON.stringify(verdicts)); localStorage.setItem('os-intake-rules-v161', JSON.stringify(fixes)); localStorage.setItem('os-intake-sizes-v162', JSON.stringify(sizes)); } catch { /* private mode */ } };
 let selected = -1;
 function select(i) { selected = i; updateRows(); }
 const fmtKB = (b) => (b ? (b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB') : '–');
@@ -384,7 +385,10 @@ const UPS = { any: 'any side up (upside down too)', base: 'on its base or its si
 function logicText(d) {
   if (d.role !== 'to') return d.role === 'bg' ? 'Furniture (background): fixed place, only nudged.' : 'Picture frame: a coded picture is drawn in.';
   const sc = d.scale ? ' · size: ' + Object.entries(d.scale).map(([k, v]) => `${PLACE[k] || k} ${Math.round(v * 100)}%`).join(', ') : '';
-  return `${USE[d.use] || '–'}\nWhere: ${d.at.map((c) => PLACE[c] || c).join(', ')}\nWhich way up: ${UPS[d.up] || d.up || '–'}${d.support === 'full' ? ' · whole underside supported' : ''}${sc}${d.note ? '\nRule: ' + d.note : ''}`;
+  // v16.2 SIZE RANGE (OS-41: 5.1): the longest side it may be shown at (odd sizes per round; giants on the floor only)
+  const real = d.size || Math.max(...d.dims);
+  const rg = d.range ? `\nSize range: ${cm(d.range[0])}–${cm(d.range[1])} cm (real size ${cm(real)} cm)` : '\nSize range: real size only';
+  return `${USE[d.use] || '–'}\nWhere: ${d.at.map((c) => PLACE[c] || c).join(', ')}\nWhich way up: ${UPS[d.up] || d.up || '–'}${d.support === 'full' ? ' · whole underside supported' : ''}${sc}${rg}${d.note ? '\nRule: ' + d.note : ''}`;
 }
 let filter = ASSET_DEFS.some((d) => d.check) ? 'check' : 'all';   // (opens on the models to check, if any)
 document.querySelectorAll('[data-grp="show"] button').forEach((b) => b.classList.toggle('on', b.dataset.v === filter));
@@ -394,7 +398,7 @@ function buildRows() {
   ASSET_DEFS.forEach((def, i) => {
     const row = document.createElement('div');
     row.className = 'row'; row.dataset.i = i;
-    row.innerHTML = `<div class="t"><span class="n"></span><span class="v"><button class="keep" title="Keep">✓</button><button class="drop" title="Drop">✗</button></span></div><div class="lg"></div><input class="fix" placeholder="Rule correction (optional)…"><div class="m"></div>`;
+    row.innerHTML = `<div class="t"><span class="n"></span><span class="v"><button class="keep" title="Keep">✓</button><button class="drop" title="Drop">✗</button></span></div><div class="lg"></div><input class="fix" placeholder="Rule correction (optional)…"><input class="fix size" placeholder="Size range correction, e.g. 0.05-1.0 (m)…"><div class="m"></div>`;
     row.querySelector('.n').textContent = def.word;
     if (def.check) { const b = document.createElement('em'); b.className = 'badge ' + def.check; b.textContent = def.check === 'new' ? 'NEW piece' : 'FIXED'; row.querySelector('.n').append(' ', b); }
     row.querySelector('.n').title = def.name;
@@ -403,7 +407,11 @@ function buildRows() {
     fix.value = fixes[def.id] || '';
     fix.addEventListener('input', () => { fixes[def.id] = fix.value.trim() || undefined; saveVerdicts(); updateRows(); });
     fix.addEventListener('click', (e) => e.stopPropagation());
-    if (def.role !== 'to') fix.style.display = 'none';
+    const fs = row.querySelector('.fix.size');
+    fs.value = sizes[def.id] || '';
+    fs.addEventListener('input', () => { sizes[def.id] = fs.value.trim() || undefined; saveVerdicts(); updateRows(); });
+    fs.addEventListener('click', (e) => e.stopPropagation());
+    if (def.role !== 'to') { fix.style.display = 'none'; fs.style.display = 'none'; }
     row.addEventListener('click', (e) => { if (!e.target.closest('button')) focus(i); });
     row.querySelector('.keep').addEventListener('click', () => { verdicts[def.id] = verdicts[def.id] === 'keep' ? undefined : 'keep'; saveVerdicts(); updateRows(); });
     row.querySelector('.drop').addEventListener('click', () => { verdicts[def.id] = verdicts[def.id] === 'drop' ? undefined : 'drop'; saveVerdicts(); updateRows(); });
@@ -440,7 +448,9 @@ function updateRows() {
   const keep = ASSET_DEFS.filter((d) => verdicts[d.id] === 'keep').map((d) => `${d.word} [${d.id.replace(/^ph-/, "")}]`);
   const drop = ASSET_DEFS.filter((d) => verdicts[d.id] === 'drop').map((d) => `${d.word} [${d.id.replace(/^ph-/, "")}]`);
   const rules = ASSET_DEFS.filter((d) => fixes[d.id]).map((d) => `${d.word} [${d.id.replace(/^ph-/, '')}]: ${fixes[d.id]}`);
-  document.getElementById('summary').value = `KEEP (${keep.length}): ${keep.join(', ') || '–'}\nDROP (${drop.length}): ${drop.join(', ') || '–'}\nRULE CORRECTIONS (${rules.length}): ${rules.join(' | ') || '–'}`;
+  const szs = ASSET_DEFS.filter((d) => sizes[d.id]).map((d) => `${d.word} [${d.id.replace(/^ph-/, '')}]: ${sizes[d.id]}`);
+  document.getElementById('summary').value = `KEEP (${keep.length}): ${keep.join(', ') || '–'}\nDROP (${drop.length}): ${drop.join(', ') || '–'}\nRULE CORRECTIONS (${rules.length}): ${rules.join(' | ') || '–'}
+SIZE RANGE CORRECTIONS (${szs.length}): ${szs.join(' | ') || '–'}`;
 }
 document.querySelector('.grp[data-grp=show]').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;

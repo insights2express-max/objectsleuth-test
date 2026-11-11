@@ -21,7 +21,7 @@ import { rng } from './core/random.js';
 
 // VERSION: one sequential number per published build (JM CP edit, 2026-11-07). Bump it together
 // with VERSION in sw.js; MILESTONES.md keeps the history (v01 = M0 …).
-const APP_VERSION = 'v16.1';
+const APP_VERSION = 'v16.2';
 const BUILD = 'Draft 1';
 // v16 LOOKS (OS-31: 2.1): Clay (default), Low-poly, Felt, Knit – the Original photo look is gone (OS-30: 2.1)
 const LOOKS = ['clay', 'lowpoly', 'felt', 'knit'];
@@ -62,6 +62,22 @@ const fx = study.fx;
 // v16: the room's own pieces get the look from this sampler; imported models each carry their own
 // (library.js), so they can be loaded and dropped per round.
 const library = new Library();
+// v16.2 (OS-40: 1.1): soft reflected room light for the imported objects only – the same tiny made-up room (window,
+// ceiling light, warm walls, dark floor) the Intake page uses, blurred once at start (no cost per frame beyond one
+// picture read on those objects). Its strength follows the daylight (main loop → library.setFill).
+{
+  const env = new THREE.Scene();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(10, 6, 10), new THREE.MeshBasicMaterial({ color: 0x5d5047, side: THREE.BackSide }));
+  box.position.y = 2; env.add(box);
+  const panel = (w, h, rgb, pos, rot) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(...rgb), side: THREE.DoubleSide })); m.position.set(...pos); m.rotation.set(...rot); env.add(m); };
+  panel(3.2, 2.4, [6, 5.6, 5], [-4.9, 2.4, 0.5], [0, Math.PI / 2, 0]);
+  panel(2.2, 2.2, [2.2, 1.9, 1.5], [0, 4.9, 0], [Math.PI / 2, 0, 0]);
+  panel(10, 1.2, [0.18, 0.12, 0.08], [0, -0.9, 0], [-Math.PI / 2, 0, 0]);
+  const pm = new THREE.PMREMGenerator(renderer);
+  library.env = pm.fromScene(env, 0.04).texture;
+  pm.dispose();
+  library.envK = 0.3;
+}
 const targets = new Targets(study.root, study.fx, VIEW_DIR, library);
 const batcher = new StaticBatcher(study.root);
 const sampler = new StyleSampler(study.root, [...fx.bulbMats, ...fx.shadeMats, ...fx.windowMats, fx.overheadMat]);
@@ -213,14 +229,15 @@ function setView(name, remember = true) {
   viewButtons.forEach((b) => b.classList.toggle('on', b.dataset.view === name));
   zoomLabel.textContent = '×' + controls.zoom.toFixed(1);
   layoutPanel();
+  try { shownBearing = null; updateCompass(); } catch (e) { /* (not ready yet) */ }
   lastMove = performance.now(); busyUntil = performance.now() + 600;
-  if (name === 'walk' && !walkHintShown) { walkHintShown = true; toast('🚶 Drag to look around · double-tap the floor to walk there · pinch to zoom'); }
+  if (name === 'walk' && !walkHintShown) { walkHintShown = true; toast('🚶 Drag to look around · double-tap the floor to walk there (any zoom) · 🧭 compass or ← → keys to turn'); }
   if (remember) try { localStorage.setItem('objectsleuth.view', name); } catch (e) { /* ignore */ }
 }
 viewButtons.forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
-// WALK-IN: double-tap the floor (or rug) to step there – never into furniture or walls
+// WALK-IN: double-tap the floor (or rug) to step there – never into furniture or walls. v16.2 (OS-41: 4.1): at ANY
+// zoom (was ×1.6 at most) – the view glides back to ×1 on the way. A double-tap anywhere else zooms in, as before.
 function walkHere(cx, cy) {
-  if (look.zoom > 1.6) return false;              // zoomed in: a double-tap zooms further instead
   const ray = new THREE.Raycaster();
   ray.setFromCamera(screenToNdc(cx, cy), perspCam);
   const hit = ray.intersectObjects(targets.solids(), false)[0];
@@ -233,6 +250,7 @@ function walkHere(cx, cy) {
   for (let i = 0; i < 10 && !free(p); i++) p.lerp(from, 0.2);
   if (!free(p)) { toast('No room to stand there'); return true; }
   look.walkTo(p);
+  if (look.zoom > 1.01) { const c = look.centre(); look.anim = { to: 1, cx: c.x, cy: c.y }; }   // back to ×1 as it walks
   return true;
 }
 // a short note at the top of the screen (fades by itself; plain page text, no 3D redraw)
@@ -365,6 +383,7 @@ let busyUntil = 0;   // full speed until then (see the main loop)
 ortho.onChange = look.onChange = (c) => {
   if (c !== controls) return;
   zoomLabel.textContent = '×' + c.zoom.toFixed(1); gtao.aoDirty = true; lastMove = performance.now();
+  if (typeof updateCompass === 'function') try { updateCompass(); } catch (e) { /* (not ready yet) */ }
 };
 ortho.apply();
 
@@ -457,7 +476,8 @@ function layoutPanel() {
   const r0 = panel.getBoundingClientRect();
   const rightEdge = fp.mode === 'bottom' && !fp.collapsed && vw - $('bottombar').offsetWidth - 28 - 8 >= r0.width
     ? vw - $('bottombar').offsetWidth - 28 : vw - 8;
-  fp.x = clamp(fp.x, 8, Math.max(8, rightEdge - r0.width));
+  const leftEdge = fp.mode === 'bottom' && !fp.collapsed ? 104 : 8;      // (v16.2: docked at the bottom, clear of the compass)
+  fp.x = clamp(fp.x, leftEdge, Math.max(leftEdge, rightEdge - r0.width));
   if (fp.mode === 'top') fp.y = top;
   else if (fp.mode === 'bottom') fp.y = vh - r0.height - BOTTOM_GAP;
   else fp.y = clamp(fp.y, top, Math.max(top, vh - r0.height - 8));
@@ -564,6 +584,100 @@ ortho.onTap = look.onTap = (cx, cy) => {
 // stays until that object is tapped (OS-21: 1.1). "Reveal List" = every listed one (OS-28: 1.1).
 $('reveal1').addEventListener('click', () => { controls.reset(); targets.reveal(1); });
 $('revealall').addEventListener('click', () => { controls.reset(); targets.reveal(Infinity); });
+
+// ---------- v16.2 UNDO ↶ (OS-41: 3.1–3.2): the last found object goes back where it was, its points too ----------
+$('undo').addEventListener('click', () => {
+  session.undo((id) => {
+    const it = targets.list.find((t) => t.def.id === id);
+    if (!it || !targets.unfind(it)) return false;
+    leaving.delete(it); it.wasShown = false;
+    setCut([...cutNow]);                         // (a wall a view cuts away keeps hiding what hangs on it)
+    targets.onChange(targets);
+    return true;
+  });
+});
+
+// ---------- v16.2 COMPASS (OS-41: 4.2): lower left – the way the view faces, by the Scene's real compass ----------
+// (the same orientation the sun uses: sun.js compassDir). Stage / Walk-in: tap a letter (or any point of the dial)
+// to turn that way, or drag round the dial to turn. Desktop: ← → turn, ↑ ↓ look up / down. Nothing animates at rest:
+// the dial is redrawn only when the view turns.
+const compassEl = $('compass'), rose = $('c-rose');
+{
+  const ticks = rose.querySelector('.c-ticks');
+  for (let b = 0; b < 360; b += 30) if (b % 90) {
+    const a = b * Math.PI / 180, l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', 40 * Math.sin(a)); l.setAttribute('y1', -40 * Math.cos(a)); l.setAttribute('x2', 34 * Math.sin(a)); l.setAttribute('y2', -34 * Math.cos(a));
+    ticks.appendChild(l);
+  }
+}
+const TURN = study.compassTurn;                  // degrees: how the room is turned against the compass
+const bearingOf = (dx, dz) => ((Math.atan2(dx, -dz) * 180 / Math.PI - TURN) % 360 + 360) % 360;
+function facing() {
+  if (ortho.active) return bearingOf(-VIEW_DIR.x, -VIEW_DIR.z);
+  return bearingOf(-Math.sin(look.yaw), -Math.cos(look.yaw));
+}
+let shownBearing = null;
+function updateCompass() {
+  const b = facing();
+  if (shownBearing !== null && Math.abs(b - shownBearing) < 0.2) return;
+  shownBearing = b;
+  rose.setAttribute('transform', `rotate(${(-b).toFixed(1)})`);
+  for (const t of rose.querySelectorAll('.c-l')) t.setAttribute('transform', `rotate(${b.toFixed(1)} ${t.getAttribute('x')} ${t.getAttribute('y')})`);   // letters stay upright
+  compassEl.setAttribute('aria-valuenow', Math.round(b));
+  compassEl.title = `Facing ${['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(b / 45) % 8]} (${Math.round(b)}°)` + (ortho.active ? ' – turn in Stage or Walk-in' : ' – tap a direction or drag round to turn');
+  compassEl.classList.toggle('fixed', ortho.active);
+}
+const yawFor = (bearing) => -((bearing + TURN) * Math.PI / 180);
+let turnHint = false;
+function canTurn() {
+  if (look.active) return true;
+  if (!turnHint) { turnHint = true; toast('🧭 The Diorama faces one way – switch to 🎭 Stage or 🚶 Walk-in to turn'); }
+  return false;
+}
+{
+  let drag = null;
+  const angleAt = (e) => { const r = compassEl.getBoundingClientRect(); return Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2))); };
+  compassEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    try { compassEl.setPointerCapture(e.pointerId); } catch (err) { /* (not a live pointer) */ }
+    drag = { a: angleAt(e), moved: 0, x: e.clientX, y: e.clientY, letter: e.target.dataset && e.target.dataset.b };
+  });
+  compassEl.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const a = angleAt(e), d = Math.atan2(Math.sin(a - drag.a), Math.cos(a - drag.a));
+    drag.a = a;
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6 && !drag.moved) return;
+    drag.moved += Math.abs(d);
+    if (!look.active) return;
+    look.fly = null;
+    look.yaw += d;                               // the dial turns with the finger; the view turns with it
+    look.apply();
+    lastMove = performance.now();
+  });
+  const end = (e) => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    if (d.moved > 0.02 || Math.hypot(e.clientX - d.x, e.clientY - d.y) >= 6) { if (!look.active) canTurn(); return; }
+    if (!canTurn()) return;
+    // a tap: a letter = that heading; anywhere else on the dial = the heading shown there
+    const b = d.letter !== undefined ? Number(d.letter) : facing() + angleAt(e) * 180 / Math.PI;
+    look.turnTo(yawFor(b));
+  };
+  compassEl.addEventListener('pointerup', end);
+  compassEl.addEventListener('pointercancel', () => { drag = null; });
+}
+// desktop arrow keys (held down: smooth turn)
+look.keys = { x: 0, y: 0 };
+const KEYS = { ArrowLeft: ['x', 1], ArrowRight: ['x', -1], ArrowUp: ['y', 1], ArrowDown: ['y', -1] };
+window.addEventListener('keydown', (e) => {
+  const k = KEYS[e.key];
+  if (!k || (e.target && e.target.closest && e.target.closest('input, select, textarea'))) return;
+  e.preventDefault();
+  if (!canTurn()) return;
+  look.keys[k[0]] = k[1];
+});
+window.addEventListener('keyup', (e) => { const k = KEYS[e.key]; if (k) look.keys[k[0]] = 0; });
+window.addEventListener('blur', () => { look.keys.x = look.keys.y = 0; });
 
 // ---------- M3–M5: the game round ----------
 const session = new Session({
@@ -735,6 +849,7 @@ for (const ev of ['pointerdown', 'change', 'keydown']) document.addEventListener
 window.addEventListener('resize', () => { busyUntil = performance.now() + 500; });
 function visibleState() {
   const c = lighting.cur, h = lighting.hours();
+  library.setFill(clamp(0.3 * c.hemiI / 2.3, 0.04, 0.35));        // v16.2: reflected light on imported things follows the daylight
   return [c.sunI, c.hemiI, c.exposure, c.lampI, c.rays, c.windowI, c.toSun.x, c.toSun.y, c.toSun.z]
     .map((v) => v.toFixed(3)).join() + c.bg.getHexString() + '|' + Math.floor(h * 60) + (lighting.overhead ? 'O' : '') + view + fx.curtains.k.toFixed(3);
 }
@@ -752,7 +867,7 @@ function draw(dt) {
 renderer.setAnimationLoop(() => {
   const now = performance.now();
   const moving = now - lastMove < 300 || now < busyUntil || controls.pointers.size > 0 || targets.animating() || !!lighting.timeLapse
-    || !!controls.anim || !!controls.fly || !!look.walk || study.busy;
+    || !!controls.anim || !!controls.fly || !!look.walk || study.busy || (look.active && !!(look.keys.x || look.keys.y));   // (v16.2: arrow keys held)
   const dt = Math.min((now - last) / 1000, 0.25);
   if (moving) {
     last = now;

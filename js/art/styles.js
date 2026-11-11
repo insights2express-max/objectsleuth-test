@@ -55,20 +55,20 @@ const SKIN_VERT_MAIN = `
   #endif
 #endif`;
 const SKIN_FRAG = `
-uniform sampler2D uSkin; uniform sampler2D uMarks;
+uniform sampler2D uSkin; uniform sampler2D uMarks; uniform sampler2D uNoise; uniform sampler2D uHash;
 uniform float uTile; uniform float uBump; uniform float uTone; uniform float uDriftTone; uniform float uVary; uniform float uRot;
 uniform float uMix2; uniform float uCell; uniform float uProb; uniform vec2 uMark;
 varying vec3 vLP; varying vec3 vLN; varying float vSeed;
 #ifdef SKIN_GRAIN
 varying vec3 vGrain; varying vec3 vGrain2;
 #endif
-float skHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-vec2 skHash2(vec2 p) { return vec2(skHash(p), skHash(p + 17.31)); }
-// smooth random "value noise", computed on the spot: no picture, so it never repeats
-float skNoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(skHash(i), skHash(i + vec2(1.0, 0.0)), f.x), mix(skHash(i + vec2(0.0, 1.0)), skHash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
+// v16.2 (OS-41: 2.3, Opera speed): the random numbers and the smooth "value noise" are no longer worked out for every
+// pixel – they are read from two small pictures made once at start (BAKED below): a 256 × 256 table of dice rolls,
+// and 512 × 512 smooth noise that repeats only every 64 cells (22–109 m in the room: never visible). Same patterns,
+// same character – far fewer sums per pixel (3 planes × ~25 hash sums → a few picture reads).
+vec4 skH(vec2 cell) { return texelFetch(uHash, ivec2(mod(floor(cell), 256.0)), 0); }
+vec2 skHash2(vec2 p) { return skH(p).rg; }
+vec4 skN(vec2 p) { return textureLod(uNoise, p * (1.0 / 64.0), 0.0); }
 // "Shuffled tiling": the surface is split into small triangles; each corner of a triangle takes the
 // picture from a random place, and the three are blended. Neighbouring patches never match, so no
 // repeat can form (stochastic texturing, after Heitz & Neyret / Mikkelsen).
@@ -109,12 +109,12 @@ vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o, float fp) {
   vec4 a;
   if (uMix2 > 0.0) a = skinShuffled(uv, ux, uy);       // Clay, Felt: no repeat anywhere
   else a = textureGrad(uSkin, uv, ux, uy);             // Knit: stitches must line up
-  // gentle, large tone drift, computed on the spot (not a picture, so it can never repeat)
-  float dr = 0.65 * skNoise(q / 1.7 + o * 3.1) + 0.35 * skNoise(q / 0.6 + o.yx * 5.3);
+  // gentle, large tone drift (baked noise, repeating only every 109 m / 38 m)
+  float dr = 0.65 * skN(q / 1.7 + o * 3.1).r + 0.35 * skN(q / 0.6 + o.yx * 5.3).g;
   float tone = (a.r - 0.5) * uTone + (dr - 0.5) * 2.0 * uDriftTone;
   float h = a.g;
   if (uMix2 > 0.0) { // 2nd height layer (Felt: coarse fibers, Clay: other lumps) mixed in soft random patches
-    float pn = skNoise(q / 0.35 + o * 7.7 + 11.0);
+    float pn = skN(q / 0.35 + o * 7.7 + 11.0).b;
     h = mix(a.g, a.b, smoothstep(0.35, 0.65, pn) * uMix2);
   }
   // v16.1 (OS-37: 5, Opera speed): the one-off marks are skipped where they would be only a few pixels wide
@@ -123,10 +123,11 @@ vec2 skinPlane(vec3 e1, vec3 e2, vec3 dpx, vec3 dpy, vec2 o, float fp) {
   if (uProb > 0.0 && mkFade > 0.0) { // one-off marks, one dice roll per cell, each kept inside its cell
     vec2 cq = q / uCell, id = floor(cq), f = cq - id;
     vec2 cx = qx / uCell, cy = qy / uCell;
-    float sd = vSeed * 37.0;
-    if (skHash(id + sd) < uProb) {
-      float r2 = skHash(id * 1.31 + 5.7 + sd), r3 = skHash(id * 0.71 + 2.3 + sd), r4 = skHash(id * 1.73 + 9.1 + sd);
-      vec2 r56 = vec2(skHash(id * 2.1 + 1.9 + sd), skHash(id * 0.37 + 4.4 + sd));
+    vec2 sd = floor(vec2(vSeed * 2371.0, fract(vSeed * 97.0) * 1733.0));   // (each object's own part of the dice table)
+    vec4 d1 = skH(id + sd);
+    if (d1.r < uProb) {
+      float r2 = d1.g, r3 = d1.b, r4 = d1.a;
+      vec2 r56 = skH(id + sd + vec2(97.0, 41.0)).rg;
       float sc = mix(uMark.x, uMark.y, r4);
       vec2 c = 0.5 + (r56 - 0.5) * (1.0 - sc);
       float an = r3 * 6.2831, ca = cos(an), sa = sin(an);
@@ -182,7 +183,38 @@ function addSkin(material, style, uniforms) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   normal = skinBump(-vViewPosition, normal, sk.y * uBump, faceDirection);`);
   };
-  material.customProgramCacheKey = () => 'objectsleuth-skin4-' + style;
+  material.customProgramCacheKey = () => 'objectsleuth-skin5-' + style;
+}
+
+// v16.2 BAKED randomness for the skins (OS-41: 2.3): made once, shared by every skinned object
+let BAKED = null;
+function baked() {
+  if (BAKED) return BAKED;
+  let s = 0x2f6b9d1;
+  const rnd = () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
+  // dice table: 256 × 256 random bytes (4 per cell), read exactly (no blending)
+  const H = new Uint8Array(256 * 256 * 4);
+  for (let i = 0; i < H.length; i++) H[i] = Math.floor(rnd() * 256);
+  const hash = new THREE.DataTexture(H, 256, 256, THREE.RGBAFormat);
+  hash.wrapS = hash.wrapT = THREE.RepeatWrapping; hash.magFilter = hash.minFilter = THREE.NearestFilter; hash.generateMipmaps = false;
+  hash.needsUpdate = true;
+  // smooth value noise: 64 × 64 random cells (wrapping), 8 pixels per cell, smoothstep between cells – 3 independent layers
+  const N = 512, C = 64, P = N / C, lat = [0, 1, 2].map(() => Float32Array.from({ length: C * C }, rnd));
+  const D = new Uint8Array(N * N * 4), sm = (t) => t * t * (3 - 2 * t);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const gx = (x + 0.5) / P - 0.5, gy = (y + 0.5) / P - 0.5, ix = Math.floor(gx), iy = Math.floor(gy), fx = sm(gx - ix), fy = sm(gy - iy);
+    const x0 = (ix + C) % C, x1 = (ix + 1 + C) % C, y0 = (iy + C) % C, y1 = (iy + 1 + C) % C;
+    for (let c = 0; c < 3; c++) {
+      const L = lat[c], a = L[y0 * C + x0] + (L[y0 * C + x1] - L[y0 * C + x0]) * fx, b = L[y1 * C + x0] + (L[y1 * C + x1] - L[y1 * C + x0]) * fx;
+      D[(y * N + x) * 4 + c] = Math.round((a + (b - a) * fy) * 255);
+    }
+    D[(y * N + x) * 4 + 3] = 255;
+  }
+  const noise = new THREE.DataTexture(D, N, N, THREE.RGBAFormat);
+  noise.wrapS = noise.wrapT = THREE.RepeatWrapping; noise.magFilter = noise.minFilter = THREE.LinearFilter; noise.generateMipmaps = false;
+  noise.needsUpdate = true;
+  BAKED = { hash, noise };
+  return BAKED;
 }
 
 // Smooth 3D noise (JS) for hand-made unevenness in the shapes.
@@ -286,7 +318,7 @@ function uniformsFor(style) {
     const S = STYLES[style];
     const sk = skin(style);
     skinUniforms[style] = {
-      uSkin: { value: sk.base }, uMarks: { value: sk.marks },
+      uSkin: { value: sk.base }, uMarks: { value: sk.marks }, uNoise: { value: baked().noise }, uHash: { value: baked().hash },
       uTile: { value: S.tile }, uBump: { value: S.bump }, uTone: { value: S.tone }, uDriftTone: { value: S.drift },
       uVary: { value: S.vary }, uRot: { value: S.rot }, uMix2: { value: S.mix2 },
       uCell: { value: S.cell }, uProb: { value: S.prob }, uMark: { value: new THREE.Vector2(...S.mark) },

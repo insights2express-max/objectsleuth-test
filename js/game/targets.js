@@ -39,9 +39,34 @@ const HOST_CAP = { table: 1, seat: 1, chest: 2, sideboard: 3, desk: 3 };
 // mirrors, the dartboard, the shield and the sconce have their hardware hidden behind them (2.1.1.2).
 const CONCEALED = new Set(['ph-ornate_mirror_01', 'ph-dartboard', 'ph-kite_shield', 'ph-industrial_wall_sconce']);
 const BRACKET = { 'ph-Lantern_01': 0.035 };                        // hangs from an arm (stand-off from the wall)
-const NAIL = new Set(['ph-old_gas_mask', 'ph-clipboard']);
+const NAIL = new Set(['ph-old_gas_mask']);              // (v16.2, OS-40: 1.1 – the clipboard is never on a wall)
+// v16.2 PHYSICS (OS-41: 1.1)
+const TIP = 0.25;         // a rest pose is stable when its centre of mass sits inside its footprint by ≥ 25 % of its height (tips at ~14°)
+const HEAVY = 0.22;       // longest side (m) from which a thing counts as heavy: ~100 % of its footprint must be supported
+// 62 directions, evenly spread over a sphere (collision lines follow the model's real shape – was 14)
+const SPHERE = (() => { const out = [], n = 62, g = Math.PI * (3 - Math.sqrt(5)); for (let i = 0; i < n; i++) { const y = 1 - (2 * (i + 0.5)) / n, r = Math.sqrt(1 - y * y); out.push(new THREE.Vector3(Math.cos(g * i) * r, y, Math.sin(g * i) * r)); } return out; })();
+// 2-D convex hull (x, z pairs) and how far a point lies inside it (negative = outside)
+function hull2(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (const q of p.reverse()) { while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+function insideBy(h, x, z) {
+  if (h.length < 3) return -1;
+  let m = Infinity;
+  for (let i = 0; i < h.length; i++) {
+    const a = h[i], b = h[(i + 1) % h.length], ex = b[0] - a[0], ez = b[1] - a[1], L = Math.hypot(ex, ez) || 1e-9;
+    m = Math.min(m, ((x - a[0]) * ez - (z - a[1]) * ex) / -L);     // (counter-clockwise hull: inside = positive)
+  }
+  return m;
+}
 const HOOK_MAT = new THREE.MeshStandardMaterial({ color: 0x2b2724, roughness: 0.55, metalness: 0.3 });
 export const TO_COUNT = 15, LIST_ROWS = 6;
+export const ODD = { low: [0, 1], med: [1, 3], high: [2, 6] };      // v16.2: odd sizes per round (OS-41: 5.2b)
 // cover rule per level: adj = sides touching something (of 8), vis = share visible from the main view
 const COVER = {
   low: (adj, vis) => adj >= 1 || vis <= 0.85,
@@ -172,6 +197,17 @@ export class Targets {
     if (placing) { list.view = list.filter((o) => !o.userData.cutHidden); list.view.balls = list.view.map(ball); }
     return list;
   }
+  // v16.2 (speed): only the solid pieces within r of a point – picked once, then every ray test round one object looks
+  // at a handful of pieces instead of all ~300 in the room
+  nearSolids(solids, c, r) {
+    const balls = solids.balls;
+    if (!balls) return solids;
+    const out = [], ob = [];
+    for (let i = 0; i < solids.length; i++) { const b = balls[i]; if (b.center.distanceTo(c) < r + b.radius) { out.push(solids[i]); ob.push(b); } }
+    out.balls = ob;
+    if (solids.view) out.view = solids.view;
+    return out;
+  }
   cast(origin, dir, far, solids) {
     this.ray.set(origin, dir);
     this.ray.far = far;
@@ -215,15 +251,12 @@ export class Targets {
     for (let i = 0; i < 8; i++) pts.push(new THREE.Vector3(c.x + (i & 1 ? h.x : -h.x), c.y + (i & 2 ? h.y : -h.y), c.z + (i & 4 ? h.z : -h.z)));
     return pts.map((p) => p.applyMatrix4(m));
   }
-  // the model's outermost real points in 14 directions (v16.1: collision tests follow its shape, not its box)
+  // the model's outermost real points in 62 directions (v16.2, OS-41: 1.1 – was 14: thin table legs slipped between)
   hull(it) {
     const g = it.group;
+    const P = this.restPts(it);
     if (g.userData.hull) return g.userData.hull;
-    const P = this.restPts(it), dirs = [];
-    for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
-      const n = Math.abs(x) + Math.abs(y) + Math.abs(z);
-      if (n === 1 || n === 3) dirs.push(new THREE.Vector3(x, y, z).normalize());
-    }
+    const dirs = SPHERE;
     g.userData.hull = dirs.map((d) => {
       let best = -Infinity, bi = 0;
       for (let i = 0; i < P.length; i += 3) { const s = P[i] * d.x + P[i + 1] * d.y + P[i + 2] * d.z; if (s > best) { best = s; bi = i; } }
@@ -231,27 +264,184 @@ export class Targets {
     });
     return g.userData.hull;
   }
-  clear(it, m, solids) {
+  clear(it, m, solids, onWall = false) {
     // (the look's surface relief – Clay, Knit – may reach a few mm past the model's base: those points sit on the surface)
-    const c0 = it.box.getCenter(new THREE.Vector3()), floor = it.box.min.y + 0.006;
-    const pts = [c0.clone().applyMatrix4(m), ...this.hull(it).map((p) => { const q = p.clone().lerp(c0, 0.05); q.y = Math.max(q.y, floor); return q.applyMatrix4(m); })];
+    // v16.2: 62 shape-following lines from its middle (was 14), then – for things over 12 cm – upright lines through its
+    // lower body (a table or chair leg standing inside a barrel or a boot) and level lines round it at two heights
+    const c0 = it.box.getCenter(new THREE.Vector3()).applyMatrix4(m);
+    const H = this.hull(it).map((p) => p.clone().applyMatrix4(m));
+    let lo = Infinity, hi = -Infinity;
+    for (const p of H) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }
+    const floor = lo + 0.006;
+    const pts = [c0, ...H.map((p) => { const q = p.clone().lerp(c0, 0.05); q.y = Math.max(q.y, floor); return q; })];
     if (this.inside(pts[0], solids)) return false;
+    const all = solids;
+    let rad = 0; for (const p of H) rad = Math.max(rad, p.distanceTo(c0));
+    solids = this.nearSolids(solids, c0, rad + 0.02);                 // (every line below stays within its own reach)
     const d = new THREE.Vector3();
-    for (let i = 1; i < pts.length; i++) {
-      d.subVectors(pts[i], pts[0]);
-      const len = d.length();
-      if (len > 1e-6 && this.cast(pts[0], d.normalize(), len, solids).length) return false;
-    }
-    // (big things: the middles of the box's faces too)
-    if (Math.max(...it.box.getSize(new THREE.Vector3()).toArray()) * new THREE.Vector3().setFromMatrixScale(m).x > 0.3) {
-      const b = it.box, c = b.getCenter(new THREE.Vector3()), h = b.getSize(new THREE.Vector3()).multiplyScalar(0.45);
-      for (const [x, y, z] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, -1]]) {
-        const q = new THREE.Vector3(c.x + x * h.x, c.y + y * h.y, c.z + z * h.z).applyMatrix4(m);
-        d.subVectors(q, pts[0]); const len = d.length();
-        if (len > 1e-6 && this.cast(pts[0], d.normalize(), len, solids).length) return false;
+    const line = (a, b) => { d.subVectors(b, a); const len = d.length(); return len > 1e-6 && this.cast(a, d.normalize(), len, solids).length > 0; };
+    for (let i = 1; i < pts.length; i++) if (line(pts[0], pts[i])) return false;
+    const big = Math.max(...it.box.getSize(new THREE.Vector3()).toArray()) * new THREE.Vector3().setFromMatrixScale(m).x;
+    if (!onWall && big > 0.12 && hi - lo > 0.03) {          // (not for things hung on a wall: the wall is checked behind them – placeWall)
+      // upright lines over its lower body's outline (a plant: its pot), every ≤ 3.5 cm (at most 7 × 7)
+      const low = hull2(H.filter((p) => p.y < lo + 0.5 * (hi - lo)).map((p) => [p.x, p.z]));
+      if (low.length >= 3) {
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const [x, z] of low) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+        const nx = Math.min(6, Math.max(2, Math.ceil((x1 - x0) / 0.035))), nz = Math.min(6, Math.max(2, Math.ceil((z1 - z0) / 0.035)));
+        const down = new THREE.Vector3(0, -1, 0);
+        for (let a = 0; a <= nx; a++) for (let b = 0; b <= nz; b++) {
+          const x = x0 + (x1 - x0) * a / nx, z = z0 + (z1 - z0) * b / nz;
+          if (insideBy(low, x, z) < 0.004) continue;
+          if (this.cast(new THREE.Vector3(x, hi - 0.004, z), down, hi - lo - 0.012, solids).length) return false;
+        }
+      }
+      // level lines from its middle axis to its outline, 16 ways round, at 30 % and 70 % of its height
+      for (const k of [0.3, 0.7]) {
+        const y = lo + k * (hi - lo), band = H.filter((p) => Math.abs(p.y - y) < 0.3 * (hi - lo));
+        if (band.length < 3) continue;
+        const cx = band.reduce((s, p) => s + p.x, 0) / band.length, cz = band.reduce((s, p) => s + p.z, 0) / band.length;
+        const o = new THREE.Vector3(cx, y, cz);
+        if (this.inside(o, all)) return false;
+        for (let a = 0; a < 16; a++) {
+          const dir = new THREE.Vector3(Math.cos(a * Math.PI / 8), 0, Math.sin(a * Math.PI / 8));
+          let r = 0; for (const p of band) r = Math.max(r, (p.x - cx) * dir.x + (p.z - cz) * dir.z);
+          if (r > 0.004 && this.cast(o, dir, r * 0.95, solids).length) return false;
+        }
       }
     }
     return true;
+  }
+  // ---------------------------------------------------------------- v16.2 PHYSICS (OS-41: 1.1)
+  // REST POSE: the centre of mass (the middle of its surface points) must sit over its footprint (the outline of the
+  // points it stands on), with a margin of ≥ 25 % of its height – a saw never balances on its handle with the blade
+  // up, a cassette player never stands on its thin edge. When the model's own pose fails, it settles the way a real
+  // one would: the stable pose (allowed by the catalogue's "up" rule) with the lowest centre of mass.
+  rest(it) {
+    const g = it.group, P = this.restPts(it);
+    if (g.userData.rest) return g.userData.rest;
+    const up = it.def.up, H = Math.PI / 2;
+    const turns = [[0, 0]];
+    if (up === 'base' || up === 'any') turns.push([H, 0], [-H, 0], [0, H], [0, -H]);
+    if (up === 'any') turns.push([Math.PI, 0]);
+    const v = new THREE.Vector3();
+    const tries = turns.map(([rx, rz], i) => {
+      const R = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, 0, rz));
+      let minY = Infinity, maxY = -Infinity; const com = new THREE.Vector3(); const n = P.length / 3;
+      const W = new Float32Array(P.length);
+      for (let k = 0; k < P.length; k += 3) {
+        v.set(P[k], P[k + 1], P[k + 2]).applyMatrix4(R); W[k] = v.x; W[k + 1] = v.y; W[k + 2] = v.z;
+        minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y); com.add(v);
+      }
+      com.multiplyScalar(1 / n);
+      const tol = Math.max(0.002, 0.02 * (maxY - minY)), foot = [];
+      for (let k = 0; k < W.length; k += 3) if (W[k + 1] < minY + tol) foot.push([W[k], W[k + 2]]);
+      const h = hull2(foot), margin = insideBy(h, com.x, com.z), lift = com.y - minY;
+      return { i, R, minY, maxY, com, foot, hull: h, margin, lift, stable: margin > 0 && margin >= TIP * lift };
+    });
+    const ok = tries.filter((t) => t.stable).sort((a, b) => a.lift - b.lift);
+    // (round things – an apple, a ball – have no footprint in any pose: they keep the model's own)
+    const best = tries[0].stable || !ok.length ? tries[0] : ok[0];
+    // footprint sample (≤ 24 points, spread out) for the support test
+    const f = best.foot, pick = [];
+    const stride = Math.max(1, Math.floor(f.length / 8));
+    for (let k = 0; k < f.length && pick.length < 8; k += stride) pick.push(f[k]);
+    // (the outline: at most 10 of its corners, spread round)
+    const hk = Math.max(1, Math.ceil(best.hull.length / 10));
+    best.hull = best.hull.filter((_, k) => k % hk === 0);
+    for (const q of best.hull) pick.push(q);
+    best.pick = pick;
+    best.size = it.box.clone().applyMatrix4(best.R).getSize(new THREE.Vector3());
+    best.changed = best.i !== 0;
+    if (best.changed && !g.userData.restLogged) { g.userData.restLogged = true; console.info('ObjectSleuth: settles in another pose', it.def.id, ['as modelled', 'tipped forward', 'tipped back', 'on its left side', 'on its right side', 'upside down'][best.i]); }
+    g.userData.rest = best;
+    return best;
+  }
+  // SUPPORT (v16.2, OS-41: 1.1.3): the surface is tested under its REAL footprint (a pot's base, a lamp's feet – not
+  // its box, which leaves widen). It rests on the highest points under it (Clay table tops are a little uneven), and:
+  // heavy things (≥ 22 cm) need ~100 % of the footprint on the surface; light ones need their centre of mass over
+  // the supported part. Nothing may poke up into it. Returns the height it rests at, or null.
+  support(it, m, y, solids, R) {
+    const full = it.def.support === 'full', tol = it.def.word === 'pillow' ? 0.035 : 0.007;
+    const sc = new THREE.Vector3().setFromMatrixScale(m).x;
+    const heavy = full || longest(it.def) * sc >= HEAVY;
+    const rise = Math.min(0.08, (R.maxY - R.minY) * sc);
+    const down = new THREE.Vector3(0, -1, 0), q = new THREE.Vector3();
+    const e = m.elements, at = (x, yy, z) => q.set(e[0] * x + e[4] * yy + e[8] * z + e[12], e[1] * x + e[5] * yy + e[9] * z + e[13], e[2] * x + e[6] * yy + e[10] * z + e[14]);
+    // (m already includes the rest turn: the footprint is given in the turned frame, so undo it here)
+    const inv = new THREE.Matrix4().copy(R.R).invert(), loc = new THREE.Vector3();
+    const span = it.box.getSize(new THREE.Vector3()).length() * 0.5 * sc;
+    solids = this.nearSolids(solids, new THREE.Vector3(e[12], y, e[14]), span + rise + 0.05);
+    // (its outline points first: under a heavy thing one miss there already decides it)
+    const order = R.pick.map((p, i) => i).sort((a, b) => (b >= R.pick.length - R.hull.length) - (a >= R.pick.length - R.hull.length));
+    const hits = new Array(R.pick.length).fill(null);
+    let miss = 0;
+    const maxMiss = full ? 0 : heavy ? Math.floor(R.pick.length * 0.05) : Math.floor(R.pick.length * 0.4);
+    for (const i of order) {
+      const [fx, fz] = R.pick[i];
+      loc.set(fx, R.minY, fz).applyMatrix4(inv);
+      at(loc.x, loc.y, loc.z);
+      const h = this.cast(new THREE.Vector3(q.x, y + rise, q.z), down, rise + 0.03, solids)[0];
+      hits[i] = h ? h.point.y : null;
+      if (!h || h.point.y < y - 0.012) { if (++miss > maxMiss) return null; }
+      else if (h.point.y > y + 0.015) return null;                   // something pokes up into it
+    }
+    const ys = hits.filter((v) => v !== null);
+    if (!ys.length) return null;
+    const top = Math.max(...ys);
+    if (top > y + 0.015) return null;                                // something pokes up into it (a strap, a book's edge)
+    const on = hits.map((v) => v !== null && v > top - tol);
+    const share = on.filter(Boolean).length / on.length;
+    if (full ? share < 1 : heavy ? share < 0.95 : share < 0.6) return null;      // (light things: most of the footprint too – never bridging a step)
+    if (!heavy) {   // light: the centre of mass over the part that is held up
+      const held = [];
+      R.pick.forEach((p, i) => { if (on[i]) { loc.set(p[0], R.minY, p[1]).applyMatrix4(inv); at(loc.x, loc.y, loc.z); held.push([q.x, q.z]); } });
+      loc.copy(R.com).applyMatrix4(inv); at(loc.x, loc.y, loc.z);
+      if (insideBy(hull2(held), q.x, q.z) < 0) return null;
+    }
+    return top - (this.library.look === 'lowpoly' ? 0 : 0.003);       // (Clay / Felt / Knit are soft: it settles 3 mm onto the highest bumps)
+  }
+  // under bigger things, a grid no wider than 8 cm: nothing may poke up into it (a suitcase never stands over a lamp
+  // foot). (v16.2: run last – only for a spot that passed every other test)
+  pokes(it, m, top, solids) {
+    const R = this.rest(it);
+    if (R.changed) return false;
+    const sc = new THREE.Vector3().setFromMatrixScale(m).x, e = m.elements, q = new THREE.Vector3(), down = new THREE.Vector3(0, -1, 0);
+    const b = it.box, c = b.getCenter(new THREE.Vector3()), hs = b.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+    const nx = Math.min(6, Math.ceil(2 * hs.x * sc / 0.08)), nz = Math.min(6, Math.ceil(2 * hs.z * sc / 0.08));
+    if (nx <= 2 && nz <= 2) return false;
+    const rise = Math.min(0.08, (R.maxY - R.minY) * sc);
+    solids = this.nearSolids(solids, new THREE.Vector3(e[12], top, e[14]), hs.length() * sc + rise + 0.05);
+    for (let a = 0; a <= nx; a++) for (let b2 = 0; b2 <= nz; b2++) {
+      q.set(c.x + (-0.95 + 1.9 * a / nx) * hs.x, b.min.y, c.z + (-0.95 + 1.9 * b2 / nz) * hs.z).applyMatrix4(m);
+      const h = this.cast(new THREE.Vector3(q.x, top + rise, q.z), down, rise + 0.03, solids)[0];
+      if (h && h.point.y > top + 0.009) return true;
+    }
+    return false;
+  }
+  // STURDY (v16.2, OS-41: 1.1.1): what a thing may lean on – walls, furniture, books, and objects bigger than itself
+  // (never a quill, a pen, an inkwell or a candle)
+  sturdy(o, vol) {
+    if (o.userData.wallFace || o.userData.books || o.isInstancedMesh) return true;
+    if (o.userData.proxy) {
+      const g = o.parent, s = g.scale.x, z = g.userData.box.getSize(new THREE.Vector3()).multiplyScalar(s);
+      return z.x * z.y * z.z > vol * 1.2;
+    }
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    const z = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld).getSize(new THREE.Vector3()).toArray().sort((a, b) => b - a);
+    return z[0] >= 0.3 && z[1] >= 0.04;                              // a panel, a top, a leg – not a pen or a quill
+  }
+  // REAL CONTACT at the top of a lean: rays from three heights round the touching point must meet a sturdy surface
+  leanContact(it, m, n, solids, vol) {
+    const into = n.clone().negate();
+    const { touch } = this.extremes(it, m, into);
+    let ok = 0;
+    for (const dy of [0, -0.012, 0.012]) {
+      const o = touch.clone().addScaledVector(n, 0.03); o.y += dy;
+      const h = this.cast(o, into, 0.045, solids)[0];
+      if (h && Math.abs(h.distance - 0.03) < 0.008 && this.sturdy(h.object, vol)) ok++;
+    }
+    return ok >= 2;
   }
   near(p, taken, r = 0) { return taken.some((t) => t.p.distanceTo(p) < Math.max(0.3, t.r + r)); }
 
@@ -266,7 +456,7 @@ export class Targets {
     const host = this.hostOf(hit.object);
     if (!host) {
       if (hit.object.userData.proxy) return 'z';
-      if (p.y < 0.03) return Math.abs(p.x) < 1.2 && p.z < -1.85 ? 'h' : 'f';
+      if (p.y < 0.045) return Math.abs(p.x) < 1.2 && p.z < -1.85 ? 'h' : 'f';   // (v16.2: the rug's top is uneven in Clay – up to 3.5 cm)
       return 'z';
     }
     const k = host.userData.hostKind;
@@ -302,6 +492,7 @@ export class Targets {
   // the places a model may go (catalogue "at"): t (tables) includes the sideboard (y); b (fruit bowl) stands
   // on a table; food never on the floor or the hearth; everyday things only within reach
   codesFor(it) {
+    if (it.odd > 1.2) return ['f'];                                  // v16.2 SIZE RANGE: a giant stands on the floor only
     const d = it.def, codes = d.at.filter((c) => c !== 'w' && c !== 'b' && c !== 'g');
     if (d.at.includes('b') && !codes.includes('t')) codes.push('t');
     if (codes.includes('t') && !codes.includes('y')) codes.push('y');
@@ -336,9 +527,16 @@ export class Targets {
     if (!regs.length) return null;
     for (let n = 0; n < 15; n++) {
       const r = regs[Math.floor(rnd() * regs.length)], b = r.box;
-      const x = b.min.x + rnd() * (b.max.x - b.min.x), z = b.min.z + rnd() * (b.max.z - b.min.z);
-      const top = Math.min(3.1, b.max.y + 0.4);
-      const hits = this.cast(new THREE.Vector3(x, top, z), down, top + 0.2, solids);
+      // v16.2 (speed): up to 60 probes per region are kept for the round and reused (the later tests still check
+      // everything placed since – a probe never lets anything through)
+      const pool = this.probes.get(r) || (this.probes.set(r, []), this.probes.get(r));
+      let hits;
+      if (pool.length < 60 || rnd() < 0.15) {
+        const x = b.min.x + rnd() * (b.max.x - b.min.x), z = b.min.z + rnd() * (b.max.z - b.min.z);
+        const top = Math.min(3.1, b.max.y + 0.4);
+        hits = this.cast(new THREE.Vector3(x, top, z), down, top + 0.2, solids);
+        if (pool.length < 60) pool.push(hits);
+      } else hits = pool[Math.floor(rnd() * pool.length)];
       const ok = [];
       hits.forEach((h, i) => {
         if (this.normalOf(h).y < 0.9) return;
@@ -364,7 +562,7 @@ export class Targets {
 
   // ---------------------------------------------------------------- literal placements
   placeFlat(it, rnd, solids, taken, s0, L) {
-    const d = it.def, b0 = it.box.getSize(new THREE.Vector3());
+    const d = it.def, R = this.rest(it), b0 = R.size;                // v16.2: in its stable rest pose
     const codes = this.codesFor(it);
     for (let a = 0; a < 60; a++) {
       const p = this.surfacePoint(rnd, solids, b0.y * s0 * this.minScale(d) + 0.03, codes);
@@ -374,54 +572,32 @@ export class Targets {
       if (p.room < bs.y + 0.03 || this.near(p, taken, r)) continue;
       if (!this.passive && this.avoid.has(this.zoneKey(p)) && rnd() < 0.75) continue;
       if (!this.passive && this.tooAlike(it, p) && rnd() < 0.8) continue;
-      const m = new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromAxisAngle(UP, rnd() * Math.PI * 2), new THREE.Vector3(s, s, s));
-      if (!this.supported(it, m, p.y, solids)) continue;
-      const adj = this.touching(it, m, solids);
+      const m = new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromAxisAngle(UP, rnd() * Math.PI * 2), new THREE.Vector3(s, s, s)).multiply(R.R);
+      m.elements[13] -= R.minY * s;                                  // its real lowest point on the surface
+      const top = this.support(it, m, p.y, solids, R);
+      if (top === null) continue;
+      m.elements[13] += top - p.y + 0.0008;                           // resting on the highest points under it
+      const adj = this.touching(it, m, solids, bs);
       if ((p.code === 'f' || p.code === 'h') && adj < 1) continue;   // never out on the open floor (OS-36: 4.3.2)
       const vis = this.visible(this.posePoints(it, m, 0.8), solids);
       const tucked = p.room !== undefined && p.room < 0.6 && vis <= (this.level === 'high' ? 0.75 : 0.95);
       // on display (no cover rule): big things, bookcase tops, and collectibles on the mantel, shelves or sideboard
       const display = r > 0.15 || p.code === 'k' || (d.use === 'c' && (p.code === 'm' || p.code === 's' || p.code === 'y'));
       if (vis < L.minVis || !(this.relaxed || display || COVER[this.level](adj, vis) || tucked)) continue;
-      if (!this.clear(it, m, solids)) continue;
-      return { m, kind: 'flat', at: p, vis, adj, r, host: p.host };
+      if (!this.clear(it, m, solids) || this.pokes(it, m, top, solids)) continue;
+      return { m, kind: 'flat', at: p, vis, adj, r, host: p.host, bs };
     }
     return null;
-  }
-  // RESTING (v16.1, OS-36: 4.1.2): the surface is under its feet – under the WHOLE underside for boards and
-  // cables (support "full": chessboard, gamepad) – and nothing pokes up into it (trunk straps, a book's edge)
-  supported(it, m, y, solids) {
-    const full = it.def.support === 'full', tol = it.def.word === 'pillow' ? 0.035 : 0.006;   // (a pillow is soft: it settles into a curved seat)
-    const b = it.box, c = b.getCenter(new THREE.Vector3()), h = b.getSize(new THREE.Vector3()).multiplyScalar(0.5);
-    const rise = Math.min(h.y * 2 * new THREE.Vector3().setFromMatrixScale(m).x, 0.08);
-    const down = new THREE.Vector3(0, -1, 0), q = new THREE.Vector3();
-    const e = full ? 0.92 : 0.75;
-    // the four corners first (cheap), then the middle and edges – and, under bigger things, a grid no wider
-    // than 8 cm (a suitcase must never stand over a lamp foot)
-    const pts = [[-e, -e], [e, -e], [-e, e], [e, e], [0, 0], [0, -e], [0, e], [-e, 0], [e, 0]];
-    if (full) for (const i of [-0.45, 0.45]) for (const k of [-e, -0.45, 0, 0.45, e]) pts.push([i, k], [k, i]);
-    const sc = new THREE.Vector3().setFromMatrixScale(m).x;
-    const nx = Math.min(8, Math.ceil(2 * h.x * sc / 0.08)), nz = Math.min(8, Math.ceil(2 * h.z * sc / 0.08));
-    if (nx > 2 || nz > 2) for (let a = 0; a <= nx; a++) for (let b2 = 0; b2 <= nz; b2++) pts.push([-0.95 + 1.9 * a / nx, -0.95 + 1.9 * b2 / nz]);
-    let ok = 0;
-    for (let n = 0; n < pts.length; n++) {
-      const [i, k] = pts[n];
-      q.set(c.x + i * h.x, b.min.y, c.z + k * h.z).applyMatrix4(m);
-      const hit = this.cast(new THREE.Vector3(q.x, y + rise, q.z), down, rise + 0.03, solids)[0];
-      if (hit && hit.point.y > y + tol) return false;              // something pokes up into it
-      const on = hit && Math.abs(hit.point.y - y) < tol;
-      if (full && !on) return false;
-      if (on && n < 4) ok++;
-      if (n === 3 && ok < 3) return false;
-    }
-    return ok >= 3;
   }
   // which way up (catalogue "up"): upright things and faces never turned over; others only when propped
   canFlip(it) { const u = it.def.up; return u !== 'upright' && u !== 'faceup' && u !== 'hang'; }
   // the model's own surface points (a sample of its vertices) – it rests on its real shape, not its box
+  // v16.2 (OS-41: 1.1.5): taken from the shape in the CURRENT look – Clay / Felt / Knit make things a little uneven
+  // and push their undersides 6–8 mm below the file's base: measured from the old shape they sank in that far
   restPts(it) {
-    const g = it.group;
-    if (g.userData.restPts) return g.userData.restPts;
+    const g = it.group, key = g.userData.sampler ? g.userData.sampler.name : '';
+    if (g.userData.restPts && g.userData.restKey === key) return g.userData.restPts;
+    g.userData.restKey = key; g.userData.hull = null; g.userData.rest = null; g.userData.wallOrient = null;
     g.updateMatrixWorld(true);
     const inv = g.matrixWorld.clone().invert(), v = new THREE.Vector3(), out = [];
     let total = 0;
@@ -438,19 +614,20 @@ export class Targets {
   extremes(it, m, into = null) {
     const P = this.restPts(it), e = m.elements, v = new THREE.Vector3();
     let minY = Infinity, maxIn = -Infinity;
-    const low = new THREE.Vector3();
+    const low = new THREE.Vector3(), touch = new THREE.Vector3();
     for (let i = 0; i < P.length; i += 3) {
       const x = P[i], y = P[i + 1], z = P[i + 2];
       v.set(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]);
       if (v.y < minY) { minY = v.y; low.copy(v); }
-      if (into) maxIn = Math.max(maxIn, v.dot(into));
+      if (into) { const s = v.dot(into); if (s > maxIn) { maxIn = s; touch.copy(v); } }
     }
-    return { minY, maxIn, low };
+    return { minY, maxIn, low, touch };
   }
-  touching(it, m, solids) {
-    const c = new THREE.Vector3().setFromMatrixPosition(m);
-    const r = it.box.getSize(new THREE.Vector3()).multiplyScalar(0.5 * new THREE.Vector3().setFromMatrixScale(m).x);
-    const reach = Math.max(r.x, r.z) + 0.03, o = c.clone().setY(c.y + Math.max(0.004, r.y));
+  touching(it, m, solids, size = null) {
+    const r = (size ? size.clone() : it.box.getSize(new THREE.Vector3()).multiplyScalar(new THREE.Vector3().setFromMatrixScale(m).x)).multiplyScalar(0.5);
+    const o = it.box.getCenter(new THREE.Vector3()).applyMatrix4(m);   // (its middle, in any rest pose)
+    const reach = Math.max(r.x, r.z) + 0.03;
+    solids = this.nearSolids(solids, o, reach + 0.02);
     let n = 0;
     for (let k = 0; k < 8; k++) {
       const a = (k / 8) * Math.PI * 2;
@@ -461,7 +638,7 @@ export class Targets {
 
   placeLean(it, rnd, solids, taken, s, L) {
     const size = it.box.getSize(new THREE.Vector3()).multiplyScalar(s);
-    const len = size.x, codes = this.codesFor(it);
+    const len = size.x, codes = this.codesFor(it), vol = size.x * size.y * size.z;
     for (let a = 0; a < 50; a++) {
       const p = this.surfacePoint(rnd, solids, len + 0.03, codes);
       if (!p || this.near(p, taken, len / 2)) continue;
@@ -475,6 +652,7 @@ export class Targets {
         if (!h) continue;
         const n = this.normalOf(h);
         if (Math.abs(n.y) > 0.3 || n.dot(d) > -0.3) continue;
+        if (!this.sturdy(h.object, vol)) continue;                      // v16.2: never against a quill, a pen, a candle
         if (!best || h.distance < best.h.distance) best = { h, n: n.setY(0).normalize() };
       }
       if (!best) continue;
@@ -488,6 +666,7 @@ export class Targets {
       const rot = new THREE.Matrix4().makeBasis(up, thin, third);
       const m = this.fitPose(it, rot, s, p.y, best.h.point, best.n, rnd() * 0.04 - 0.02);
       if (!this.clear(it, m, solids) || !this.baseRests(it, m, solids)) continue;
+      if (!this.leanContact(it, m, best.n, solids, vol)) continue;     // v16.2: really touching at the top (never hovering)
       const vis = this.visible(this.posePoints(it, m, 0.8), solids);
       if (vis < L.minVis) continue;
       if (this.level !== 'low' && vis > 0.92 && rnd() < 0.6) continue;
@@ -526,6 +705,8 @@ export class Targets {
         const ang = (k / 4) * Math.PI + rnd() * 0.4, d = new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang));
         const h1 = this.cast(o, d, 0.08, solids)[0], h2 = this.cast(o, d.clone().negate(), 0.08, solids)[0];
         if (!h1 || !h2) continue;
+        const vol = size.x * size.y * size.z;
+        if (!this.sturdy(h1.object, vol) || !this.sturdy(h2.object, vol)) continue;   // v16.2: held by sturdy things only
         const gap = h1.distance + h2.distance;
         if (gap < size.y + 0.003 || gap > size.y + 0.035) continue;
         const mid = o.clone().addScaledVector(d, (h1.distance - h2.distance) / 2);
@@ -620,9 +801,16 @@ export class Targets {
       if (thinAxis === 'y') basis.makeBasis(along, orient.flip ? n.clone().negate() : n, new THREE.Vector3().crossVectors(along, orient.flip ? n.clone().negate() : n));
       else basis.makeBasis(along, new THREE.Vector3().crossVectors(n, along), n);
       if (orient.turn) basis.multiply(orient.turn);
+      if (orient.back) {   // (sconce) upright, its back panel's side onto the wall: local back → into the wall, local up → up
+        const b = orient.back, l3 = new THREE.Vector3().crossVectors(b, UP), w3 = new THREE.Vector3().crossVectors(n.clone().negate(), UP);
+        basis.makeBasis(n.clone().negate(), UP, w3).multiply(new THREE.Matrix4().makeBasis(b, UP, l3).transpose());
+      }
       const c = new THREE.Vector3(...Z.o).addScaledVector(u, t).setY(y).addScaledVector(n, thick / 2 + 0.006 + standoff);
       const lc = it.box.getCenter(new THREE.Vector3()).applyMatrix4(basis);
       const m = new THREE.Matrix4().makeTranslation(c.x - lc.x, c.y - lc.y, c.z - lc.z).multiply(basis);
+      // v16.2: its real back (not its box) 6 mm off the wall (Clay walls are up to ±5 mm uneven) – flush like a fixture, never floating or sunk in
+      { const { maxIn } = this.extremes(it, m, n.clone().negate()); const gap = (-new THREE.Vector3(...Z.o).dot(n)) - maxIn;   // (wall plane: p·n = o·n)
+        m.premultiply(new THREE.Matrix4().makeTranslation(...n.clone().multiplyScalar(-(gap - 0.006 - standoff)).toArray())); }
       const pts = this.posePoints(it, m, 0.85);
       if (pts.some((p) => p.y < 0.95 || p.y > 3.1)) continue;
       if (d.use === 'e' && pts.some((p) => p.y > REACH_WALL)) continue;     // everyday tools within reach
@@ -635,11 +823,12 @@ export class Targets {
       for (const a of [-0.9, -0.45, 0, 0.45, 0.9]) for (const b of [-0.8, 0, 0.8]) {
         grid.push(new THREE.Vector3(lc0.x + a * lh.x, thinAxis === 'y' ? lc0.y : lc0.y + b * lh.y, thinAxis === 'y' ? lc0.z + b * lh.z : lc0.z).applyMatrix4(m));
       }
+      const near = this.nearSolids(solids, c, Math.max(size.x, size.y, size.z) * 0.6 + 0.35);
       const backed = [pts[0], ...pts.slice(1).filter((p, i) => p.clone().sub(c).dot(n) < 0.001 || i < 4), ...grid].every((p) => {
-        const h = this.cast(p.clone().addScaledVector(n, 0.15), back, 0.15 + thick + standoff + 0.05, solids)[0];
+        const h = this.cast(p.clone().addScaledVector(n, 0.15), back, 0.15 + thick + standoff + 0.05, near)[0];
         return h && h.object.userData.wallFace && this.normalOf(h).dot(n) > 0.9;
       });
-      if (!backed || !this.clear(it, m, solids)) continue;
+      if (!backed || !this.clear(it, m, solids, true)) continue;
       const vis = this.visible(pts, solids);
       if (vis < 0.2) continue;
       c.code = Z.chimney ? 'c' : 'w';
@@ -663,7 +852,34 @@ export class Targets {
     };
     if (id === 'ph-kite_shield') o = { th: widthAt(1) < widthAt(-1) ? -Math.PI / 2 : Math.PI / 2 };   // the narrow end (the point) down
     else if (id === 'ph-bolt_action_rifle_7_62') o = { low: widthAt(1) > widthAt(-1) ? 1 : -1 };      // the wide end (the stock) lower
-    else if (id === 'ph-industrial_wall_sconce') o = { th: 0, y: [1.6, 2.1] };
+    else if (id === 'ph-industrial_wall_sconce') {
+      // v16.2 (OS-40: 2.3): its FLAT BACK PANEL goes against the wall – found from its own shape: of the four sides,
+      // the one with the largest flat area facing out at the very edge (its triangles' area – a plain plate has only
+      // a few corner points, so counting points picks the wrong side)
+      g.updateMatrixWorld(true);
+      const inv = g.matrixWorld.clone().invert(), a = new THREE.Vector3(), b = new THREE.Vector3(), cc = new THREE.Vector3(), nn = new THREE.Vector3();
+      const tris = [];
+      for (const ms of g.userData.meshes) {
+        const M = inv.clone().multiply(ms.matrixWorld), pos = ms.geometry.attributes.position, idx = ms.geometry.index;
+        const cnt = idx ? idx.count : pos.count;
+        for (let i = 0; i < cnt; i += 3) {
+          a.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(M); b.fromBufferAttribute(pos, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(M); cc.fromBufferAttribute(pos, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(M);
+          nn.subVectors(cc, b).cross(a.clone().sub(b));
+          const area = nn.length() / 2;
+          if (area > 1e-9) tris.push([a.clone(), b.clone(), cc.clone(), nn.clone().normalize(), area]);
+        }
+      }
+      let best = null;
+      for (const d of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+        const D = new THREE.Vector3(...d);
+        let mx = -Infinity;
+        for (let i = 0; i < P.length; i += 3) mx = Math.max(mx, P[i] * d[0] + P[i + 2] * d[2]);
+        let area = 0;
+        for (const [p, q, r, n, ar] of tris) if (n.dot(D) > 0.9 && mx - p.dot(D) < 0.012 && mx - q.dot(D) < 0.012 && mx - r.dot(D) < 0.012) area += ar;
+        if (!best || area > best.area) best = { area, d: D };
+      }
+      o = { th: 0, y: [1.6, 2.1], back: best.d };
+    }
     g.userData.wallOrient = o;
     return o;
   }
@@ -696,7 +912,8 @@ export class Targets {
     };
     const depths = [0.3, 0.5, 0.7].map((k) => 0.006 + thick * k);
     if (f.mount === 'pegs') {
-      const L = size.x, ts = L >= 0.25 ? [-0.3 * L, 0.3 * L] : [0];
+      // v16.2 (OS-41: 1.1): always two pegs, unless it hangs straight up and down (then one under its top)
+      const L = size.x, ts = Math.abs(along.y) > 0.85 ? [0] : [-0.3 * L, 0.3 * L];
       for (const t0 of ts) {
         let y = null, q = null;
         for (const k of [1, 0.8, 1.2, 0.6, 0.4]) { q = c.clone().addScaledVector(along, t0 * k); y = surface(q, UP, depths); if (y !== null) break; }
@@ -752,9 +969,10 @@ export class Targets {
 
   placeLiteral(it, rnd, solids, taken, L) {
     const d = it.def, big = longest(d) > 0.45;
-    const s = it.wall ? 1 : big ? 0.92 + rnd() * 0.08 : L.size[0] + rnd() * (L.size[1] - L.size[0]);
+    const s = it.odd ? it.odd * (0.95 + rnd() * 0.1)                 // v16.2 SIZE RANGE: an odd size this round
+      : it.wall ? 1 : big ? 0.92 + rnd() * 0.08 : L.size[0] + rnd() * (L.size[1] - L.size[0]);
     const tries = [];
-    const onWall = d.at.includes('w');
+    const onWall = d.at.includes('w') && !it.odd;                    // (odd sizes: never on a wall)
     const surfaces = this.codesFor(it).length > 0;
     if (onWall && (!surfaces || rnd() < (this.passive ? 0.6 : 0.4))) tries.push('wall');
     if (surfaces) {
@@ -777,6 +995,7 @@ export class Targets {
         : k === 'lean' ? this.placeLean(it, rnd, solids, taken, s, L) : k === 'wedge' ? this.placeWedge(it, rnd, solids, taken, s, L) : this.placeSocket(it, rnd, solids);
       if (f) return f;
     }
+    if (it.odd) { it.odd = null; return this.placeLiteral(it, rnd, solids, taken, L); }   // (no room at that size: its usual size)
     return null;
   }
 
@@ -919,6 +1138,7 @@ export class Targets {
     for (const it of this.items) { it.group.removeFromParent(); this.setRole(it, null); }
     this.items = [];
     this.socketsUsed = new Set();
+    this.probes = new Map();                   // (v16.2: surface probes, reused within this round)
     this.hostUse = new Map();
     this.cutWallTO = false;
     if (this.fx.globeBall) this.fx.globeBall.rotation.y = rnd() * Math.PI * 2;
@@ -940,6 +1160,22 @@ export class Targets {
     };
     const tos = picked.order.map((d) => mk(d, 'to')).filter(Boolean);
     const pos = picked.pos.map((d) => { const it = mk(d, 'po'); if (it) it.lookalike = picked.look.has(d.id); return it; }).filter(Boolean);
+    // v16.2 SIZE RANGE (OS-41: 5.x): a few things at an odd size this round – Low 0–1 · Medium 1–3 · High 2–6 (JM's
+    // numbers) – somewhere in the model's catalogue range, clearly bigger or smaller than usual (giants: floor only)
+    {
+      const [a, b] = ODD[this.level] || [0, 0];
+      let n = a + Math.floor(rnd() * (b - a + 1));
+      for (const it of shuffle([...tos, ...pos].filter((x) => x.def.range && !x.lookalike), rnd)) {
+        if (n <= 0) break;
+        const [lo, hi] = it.def.range, L0 = longest(it.def), ways = [];
+        if (hi >= L0 * 1.6) ways.push([L0 * 1.6, hi]);
+        if (lo <= L0 / 1.6) ways.push([lo, L0 / 1.6]);
+        if (!ways.length) continue;
+        const [x0, x1] = ways[Math.floor(rnd() * ways.length)];
+        it.odd = (x0 + rnd() * (x1 - x0)) / L0;
+        n--;
+      }
+    }
     const sides = new Map();
     const doubleSided = (list) => { for (const o of list) if (!sides.has(o.material)) { sides.set(o.material, o.material.side); o.material.side = THREE.DoubleSide; } };
     let solids = this.solids(true);
@@ -1097,7 +1333,7 @@ export class Targets {
     pts.forEach((p) => { minY = Math.min(minY, p.y); });
     pts.forEach((p) => { if (p.y < minY + 0.01) { sum.add(p); n++; } });
     const c = sum.multiplyScalar(1 / n);
-    const size = it.box.getSize(new THREE.Vector3()).multiplyScalar(new THREE.Vector3().setFromMatrixScale(f.m).x);
+    const size = f.bs ? f.bs.clone() : it.box.getSize(new THREE.Vector3()).multiplyScalar(new THREE.Vector3().setFromMatrixScale(f.m).x);
     const w = f.kind === 'flat' ? size.x * 1.35 : Math.max(0.03, size.y * 3), d = f.kind === 'flat' ? size.z * 1.6 : 0.03;
     sh.position.set(c.x, minY + 0.0012, c.z);
     sh.rotation.set(-Math.PI / 2, 0, f.kind === 'flat' ? new THREE.Euler().setFromRotationMatrix(f.m).y : 0);
@@ -1262,6 +1498,28 @@ export class Targets {
     if (this.onFound) this.onFound(it, how);
     if (this.onChange) this.onChange(this);
     return it;
+  }
+  // UNDO ↶ (v16.2, OS-41: 3.1): a found object goes back exactly where it was found (its find animation, if still
+  // running, ends at once) and returns to the list
+  unfind(it) {
+    if (!it || !it.found) return false;
+    for (const p of this.pops) if (p.it === it && p.mode === 'find') {
+      p.done = true; p.ring.removeFromParent(); p.ring.material.dispose();
+      this.unghost(p.a);
+      const a = p.a;
+      if (!a.card) { a.obj.scale.setScalar(a.s0); a.obj.position.copy(a.pos0); if (a.q0) a.obj.quaternion.copy(a.q0); }
+    }
+    this.pops = this.pops.filter((p) => !p.done);
+    it.found = false;
+    const f = it.form;
+    if (f.m) it.group.visible = true;
+    else if (f.kind === 'relief') f.mesh.visible = true;
+    if (f.m && f.kind !== 'socket' && f.kind !== 'wall') it.shadow.visible = true;
+    this.mergeShadows();
+    this.roll();
+    this.changed = true;
+    if (this.onChange) this.onChange(this);
+    return true;
   }
   // REVEAL n listed, unfound objects (n = Infinity: the whole list – "Reveal List"); or one given object
   reveal(n, only = null) {
